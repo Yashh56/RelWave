@@ -1,0 +1,12 @@
+title: "DB Visualizer Docs"
+description: "Documentation for the DB Visualizer Desktop Application"
+theme: jekyll-theme-minimal
+markdown: kramdown
+
+# Optional: show pages automatically
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+exclude:
+  - README.md
