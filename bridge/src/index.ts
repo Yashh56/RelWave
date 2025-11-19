@@ -29,7 +29,11 @@ function notifyQueryError(sessionId: string, err: any) {
   }
 }
 
-// handle incoming requests (id present)
+// utility: safe sleep
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 rpc.on("request", async (req: any) => {
   const id = req.id;
   const method = req.method;
@@ -66,6 +70,14 @@ rpc.on("request", async (req: any) => {
       }
 
       case "query.run": {
+        /**
+         * params: { sessionId, connection: PGConfig, sql, batchSize? }
+         * Emits:
+         *  - query.started { sessionId, info }
+         *  - query.result { sessionId, batchIndex, rows, columns, complete:false }
+         *  - query.progress { sessionId, rowsSoFar, elapsedMs }
+         *  - query.done { sessionId, rows, timeMs, status }
+         */
         const { sessionId, connection, sql, batchSize = 200 } = params || {};
         if (!sessionId)
           return rpc.sendError(id, {
@@ -76,11 +88,19 @@ rpc.on("request", async (req: any) => {
         let cancelled = false;
         const cancelState: { fn: (() => Promise<void>) | null } = { fn: null };
 
-        // create runner with real onBatch / onDone
+        // notify that query is starting
+        rpc.sendNotification("query.started", {
+          sessionId,
+          info: { sqlPreview: (sql || "").slice(0, 200) },
+        });
+
+        // progress state
         const start = Date.now();
         let batchIndex = 0;
         let totalRows = 0;
+        let lastProgressEmit = Date.now();
 
+        // Create cancellable runner with onBatch/onDone implemented
         const runner = streamQueryCancelable(
           connection,
           sql,
@@ -88,6 +108,8 @@ rpc.on("request", async (req: any) => {
           async (rows, columns) => {
             if (cancelled) throw new Error("query cancelled");
             totalRows += rows.length;
+
+            // send batch
             rpc.sendNotification("query.result", {
               sessionId,
               batchIndex: batchIndex++,
@@ -95,6 +117,17 @@ rpc.on("request", async (req: any) => {
               columns,
               complete: false,
             });
+
+            // emit progress at most every 500ms
+            const now = Date.now();
+            if (now - lastProgressEmit >= 500) {
+              lastProgressEmit = now;
+              rpc.sendNotification("query.progress", {
+                sessionId,
+                rowsSoFar: totalRows,
+                elapsedMs: now - start,
+              });
+            }
           },
           () => {
             rpc.sendNotification("query.done", {
@@ -106,13 +139,16 @@ rpc.on("request", async (req: any) => {
           }
         );
 
-        // set cancel handler synchronously
+        // set cancel function synchronously to avoid race
         cancelState.fn = async () => {
           try {
             await runner.cancel();
-          } catch (e) {}
+          } catch (e) {
+            /* ignore */
+          }
         };
 
+        // register cancel handler with session manager
         sessions.registerCancel(sessionId, async () => {
           cancelled = true;
           if (cancelState.fn) await cancelState.fn();
@@ -131,9 +167,18 @@ rpc.on("request", async (req: any) => {
                 status: "cancelled",
               });
             } else {
+              logger.error({ err, sessionId }, "streamQuery error");
               notifyQueryError(sessionId, err);
             }
           } finally {
+            // final progress emit before cleanup
+            try {
+              rpc.sendNotification("query.progress", {
+                sessionId,
+                rowsSoFar: totalRows,
+                elapsedMs: Date.now() - start,
+              });
+            } catch (e) {}
             sessions.remove(sessionId);
             cancelState.fn = null;
           }

@@ -6,7 +6,9 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test:client": "node test/client.js"
+    "test:client": "node test/client.js",
+    "test:stream": "node test/stream_test_client.js",
+    "test:cancel": "node test/cancel_test_client.js"
   },
   "dependencies": {
     "keytar": "^7.9.0",

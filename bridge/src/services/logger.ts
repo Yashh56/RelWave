@@ -1,3 +1,5 @@
+// bridge/src/services/logger.ts
 import pino from 'pino';
-const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
+// send logs to stderr by creating destination with { dest: 2 }
+const logger = pino({}, pino.destination(2));
 export default logger;
