@@ -1,7 +1,7 @@
 // bridge/src/connectors/postgres.ts
-import { Client } from 'pg';
-import QueryStream from 'pg-query-stream';
-import { Readable } from 'stream';
+import { Client } from "pg";
+import QueryStream from "pg-query-stream";
+import { Readable } from "stream";
 
 export type PGConfig = {
   host: string;
@@ -9,7 +9,7 @@ export type PGConfig = {
   user?: string;
   password?: string;
   database?: string;
-  // add ssl?: boolean if needed
+  ssl?: boolean;
 };
 
 /** test connection quickly */
@@ -32,11 +32,15 @@ export async function pgCancel(cfg: PGConfig, targetPid: number) {
   const c = new Client(cfg);
   try {
     await c.connect();
-    const res = await c.query('SELECT pg_cancel_backend($1) AS cancelled', [targetPid]);
+    const res = await c.query("SELECT pg_cancel_backend($1) AS cancelled", [
+      targetPid,
+    ]);
     await c.end();
     return res.rows?.[0]?.cancelled === true;
   } catch (err) {
-    try { await c.end(); } catch (e) {}
+    try {
+      await c.end();
+    } catch (e) {}
     throw err;
   }
 }
@@ -83,7 +87,7 @@ export function streamQueryCancelable(
 
     try {
       return await new Promise<void>((resolve, reject) => {
-        stream!.on('data', (row: any) => {
+        stream!.on("data", (row: any) => {
           // collect columns lazily
           if (columns === null) {
             columns = Object.keys(row).map((k) => ({ name: k }));
@@ -92,12 +96,14 @@ export function streamQueryCancelable(
           if (buffer.length >= batchSize) {
             // flush asynchronously, but capture errors
             flush().catch((e) => {
-              try { reject(e); } catch {}
+              try {
+                reject(e);
+              } catch {}
             });
           }
         });
 
-        stream!.on('end', async () => {
+        stream!.on("end", async () => {
           try {
             await flush();
             finished = true;
@@ -108,7 +114,7 @@ export function streamQueryCancelable(
           }
         });
 
-        stream!.on('error', (err) => {
+        stream!.on("error", (err) => {
           reject(err);
         });
       });
@@ -119,7 +125,9 @@ export function streamQueryCancelable(
           // nothing special here
         }
       } finally {
-        try { await client.end(); } catch (e) {}
+        try {
+          await client.end();
+        } catch (e) {}
       }
     }
   })();
@@ -130,7 +138,7 @@ export function streamQueryCancelable(
     cancelled = true;
 
     // 1) Attempt server-side cancel if we have the backend PID and cfg present
-    if (backendPid && typeof backendPid === 'number') {
+    if (backendPid && typeof backendPid === "number") {
       try {
         await pgCancel(cfg, backendPid);
         // After asking the server to cancel, still destroy local stream for immediate stop
@@ -141,14 +149,48 @@ export function streamQueryCancelable(
 
     // 2) Destroy stream locally to stop 'data' events and let promise reject/resolve
     try {
-      if (stream && typeof (stream as any).destroy === 'function') {
-        (stream as any).destroy(new Error('cancelled'));
+      if (stream && typeof (stream as any).destroy === "function") {
+        (stream as any).destroy(new Error("cancelled"));
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
 
     // 3) Close client connection
-    try { await client.end(); } catch (e) { /* ignore */ }
+    try {
+      await client.end();
+    } catch (e) {
+      /* ignore */
+    }
   }
 
   return { promise, cancel };
+}
+
+export async function listTables(connection: PGConfig) {
+  const client = new Client({
+    host: connection.host,
+    port: connection.port,
+    user: connection.user,
+    password: connection.password || undefined,
+    database: connection.database,
+    ssl: connection.ssl || undefined,
+  });
+
+  try {
+    await client.connect();
+    const res = await client.query(
+      `SELECT table_schema as schema, table_name as name, table_type as type
+FROM information_schema.tables
+WHERE table_schema NOT IN ('pg_catalog','information_schema')
+ORDER BY table_schema, table_name;`
+    );
+    await client.end();
+    return res.rows; // [{schema, name, type}, ...]
+  } catch (err) {
+    try {
+      await client.end();
+    } catch (e) {}
+    throw err;
+  }
 }

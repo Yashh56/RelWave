@@ -3,9 +3,73 @@ import { randomUUID } from "node:crypto";
 import logger from "./services/logger";
 import { testConnection, streamQueryCancelable } from "./connectors/postgres";
 import { SessionManager } from "./sessionManager";
+import { registerDbHandlers } from "./jsonRpcHandler";
 
 const rpc = new JsonStdio();
 const sessions = new SessionManager();
+
+// --- Adapter: expose global rpcRegister so handlers can register themselves ---
+// This adapter does two things:
+// 1) If the dispatcher exposes a registration API (on/register/registerMethod/addHandler) we attempt to use it.
+// 2) Always ensure globalThis.rpcRegister writes into globalThis._rpcHandlers (the fallback map).
+function attachRpcRegister(rpcDispatcher: any) {
+  // fallback map
+  (globalThis as any)._rpcHandlers = (globalThis as any)._rpcHandlers || {};
+
+  const registerFn = (
+    method: string,
+    handler: (params: any, id: number | string) => Promise<void> | void
+  ) => {
+    if (!method || typeof handler !== "function") return;
+
+    // Always store in fallback global map (guaranteed)
+    (globalThis as any)._rpcHandlers[method] = handler;
+
+    // Also attempt to register with dispatcher if it offers an API
+    try {
+      if (typeof rpcDispatcher.on === "function") {
+        rpcDispatcher.on(method, handler);
+        return;
+      }
+    } catch (e) {
+      // ignore and continue to try others
+    }
+    try {
+      if (typeof rpcDispatcher.register === "function") {
+        rpcDispatcher.register(method, handler);
+        return;
+      }
+    } catch (e) {}
+    try {
+      if (typeof rpcDispatcher.registerMethod === "function") {
+        rpcDispatcher.registerMethod(method, handler);
+        return;
+      }
+    } catch (e) {}
+    try {
+      if (typeof rpcDispatcher.addHandler === "function") {
+        rpcDispatcher.addHandler(method, handler);
+        return;
+      }
+    } catch (e) {}
+  };
+
+  (globalThis as any).rpcRegister = registerFn;
+}
+
+// attach to rpc dispatcher
+attachRpcRegister(rpc);
+
+try {
+  if (typeof registerDbHandlers === "function") {
+    registerDbHandlers(rpc, logger);
+    logger.info("Registered external JSON-RPC handlers (db.*)");
+  } else {
+    logger.debug("No external jsonRpcHandlers.registerDbHandlers found");
+  }
+} catch (e) {
+  logger.debug({ e }, "jsonRpcHandlers not found or failed to register (this is okay in some builds)");
+}
 
 logger.info("Bridge (JSON-RPC) starting");
 
@@ -41,6 +105,24 @@ rpc.on("request", async (req: any) => {
   logger.info({ id, method }, "incoming request");
 
   try {
+    // --- First: consult any global handlers registered by jsonRpcHandlers or other modules ---
+    const handlersMap =
+      (globalThis as any)._rpcHandlers ||
+      (globalThis as any).rpcHandlers ||
+      (globalThis as any).rpcHandlers; // defensive
+
+    if (handlersMap && handlersMap[method]) {
+      try {
+        // call external handler and let it respond using rpc.sendResponse / rpc.sendError
+        await handlersMap[method](params, id);
+        return;
+      } catch (eh: any) {
+        logger.error({ eh, method, id }, "external rpc handler threw");
+        return rpc.sendError(id, { code: "HANDLER_ERROR", message: String(eh) });
+      }
+    }
+
+    // --- Fallback: built-in switch/case handlers ---
     switch (method) {
       case "ping": {
         rpc.sendResponse(id, { ok: true, data: { msg: "pong", echo: params } });

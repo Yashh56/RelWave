@@ -14,7 +14,8 @@
     "keytar": "^7.9.0",
     "pg": "^8.16.3",
     "pg-query-stream": "^4.10.3",
-    "pino": "^10.1.0"
+    "pino": "^10.1.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
