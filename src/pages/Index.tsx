@@ -71,22 +71,22 @@ const Index = () => {
 
   const handleAddDatabase = () => {
     toast.success("Database connection added successfully", {
-        description: "Your new connection is now available for visualization.",
+      description: "Your new connection is now available for visualization.",
     });
     setIsDialogOpen(false);
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white"> 
-      <header className="border-b border-primary/10 bg-black/30 backdrop-blur-xl sticky top-0 z-50 shadow-lg"> 
+    <div className="min-h-screen bg-[#050505] text-white">
+      <header className="border-b border-primary/10 bg-black/30 backdrop-blur-xl sticky top-0 z-50 shadow-lg">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-gradient-to-br from-cyan-500 to-violet-600 rounded-xl shadow-lg"> 
+              <div className="p-3 bg-gradient-to-br from-cyan-500 to-violet-600 rounded-xl shadow-lg">
                 <Server className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-fuchsia-600"> 
+                <h1 className="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-fuchsia-600">
                   Data Portal
                 </h1>
                 <p className="text-sm text-gray-400">Manage and visualize your connections</p>
@@ -94,30 +94,44 @@ const Index = () => {
             </div>
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>
-                <Button className="bg-gradient-to-r from-cyan-500 to-fuchsia-600 hover:from-cyan-600 hover:to-fuchsia-700 transition-all shadow-xl shadow-fuchsia-500/20">
+                <Button className="bg-linear-to-r from-cyan-500 to-fuchsia-600 hover:from-cyan-600 hover:to-fuchsia-700 transition-all shadow-xl shadow-fuchsia-500/20">
                   <Plus className="h-4 w-4 mr-2" />
                   Add Connection
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px] bg-card text-white border-primary/20">
+              {/* ENHANCEMENT: Applying backdrop-blur and specific dark theme styles to DialogContent */}
+              <DialogContent
+                className="sm:max-w-[500px] 
+               bg-gray-900/90 backdrop-blur-sm 
+               text-white border-primary/20 
+               rounded-xl shadow-2xl"
+              >
                 <DialogHeader>
-                  <DialogTitle>Add New Database Connection</DialogTitle>
+                  <DialogTitle className="text-2xl font-bold text-white">
+                    Add New Database Connection 🔌
+                  </DialogTitle>
                   <DialogDescription className="text-gray-400">
-                    Connect to a local, Docker, or remote database
+                    Connect to a local, Docker, or remote database instance.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4 py-4">
+                <div className="space-y-5 py-4">
+                  {/* Input Fields - Consistent Dark Style */}
                   <div className="space-y-2">
                     <Label htmlFor="db-name" className="text-gray-300">Connection Name</Label>
-                    <Input id="db-name" placeholder="My Database" className="bg-input/50 border-primary/20" />
+                    <Input
+                      id="db-name"
+                      placeholder="My Production DB"
+                      className="bg-gray-800/70 border-gray-700 focus:border-cyan-500 text-white transition-colors"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="db-type" className="text-gray-300">Database Type</Label>
                     <Select>
-                      <SelectTrigger id="db-type" className="bg-input/50 border-primary/20">
+                      <SelectTrigger id="db-type" className="bg-gray-800/70 border-gray-700 focus:border-cyan-500 text-white transition-colors">
                         <SelectValue placeholder="Select database type" />
                       </SelectTrigger>
-                      <SelectContent className="bg-card border-primary/20 text-white">
+                      {/* Select Content - Ensure it stays dark themed */}
+                      <SelectContent className="bg-gray-900 border-primary/20 text-white shadow-xl">
                         <SelectItem value="postgresql">PostgreSQL</SelectItem>
                         <SelectItem value="mysql">MySQL</SelectItem>
                         <SelectItem value="mongodb">MongoDB</SelectItem>
@@ -127,28 +141,53 @@ const Index = () => {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="host" className="text-gray-300">Host</Label>
-                    <Input id="host" placeholder="localhost:5432" className="bg-input/50 border-primary/20" />
+                    <Input
+                      id="host"
+                      placeholder="prod.company.com:5432"
+                      className="bg-gray-800/70 border-gray-700 focus:border-cyan-500 text-white transition-colors"
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="username" className="text-gray-300">Username</Label>
-                      <Input id="username" placeholder="postgres" className="bg-input/50 border-primary/20" />
+                      <Input
+                        id="username"
+                        placeholder="postgres"
+                        className="bg-gray-800/70 border-gray-700 focus:border-cyan-500 text-white transition-colors"
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="password" className="text-gray-300">Password</Label>
-                      <Input id="password" type="password" placeholder="••••••••" className="bg-input/50 border-primary/20" />
+                      <Input
+                        id="password"
+                        type="password"
+                        placeholder="••••••••"
+                        className="bg-gray-800/70 border-gray-700 focus:border-cyan-500 text-white transition-colors"
+                      />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="database" className="text-gray-300">Database Name</Label>
-                    <Input id="database" placeholder="myapp_db" className="bg-input/50 border-primary/20" />
+                    <Input
+                      id="database"
+                      placeholder="myapp_db"
+                      className="bg-gray-800/70 border-gray-700 focus:border-cyan-500 text-white transition-colors"
+                    />
                   </div>
                 </div>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="border-gray-600 text-gray-300 hover:bg-gray-800">
+                <div className="flex justify-end gap-2 pt-4 border-t border-gray-700/50">
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsDialogOpen(false)}
+                    className="border-gray-600 text-gray-300 bg-gray-500 hover:bg-gray-800 transition-colors"
+                  >
                     Cancel
                   </Button>
-                  <Button onClick={handleAddDatabase} className="bg-gradient-to-r from-cyan-500 to-fuchsia-600 hover:from-cyan-600 hover:to-fuchsia-700 transition-all">
+                  {/* Connect Button - Vibrant Gradient */}
+                  <Button
+                    onClick={handleAddDatabase}
+                    className="bg-gradient-to-r from-cyan-500 to-fuchsia-600 hover:from-cyan-600 hover:to-fuchsia-700 transition-all shadow-md shadow-fuchsia-500/30"
+                  >
                     Connect
                   </Button>
                 </div>
@@ -224,7 +263,7 @@ const Index = () => {
             />
           </div>
         </div>
-        
+
         <h2 className="text-2xl font-bold mb-6 text-gray-200">Active Connections</h2>
 
         {/* Database Grid: Adapt from 1 to 4 columns based on viewport width */}
