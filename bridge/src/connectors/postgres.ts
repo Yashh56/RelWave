@@ -1,7 +1,7 @@
 // bridge/src/connectors/postgres.ts
-import { Client } from 'pg';
-import QueryStream from 'pg-query-stream';
-import { Readable } from 'stream';
+import { Client } from "pg";
+import QueryStream from "pg-query-stream";
+import { Readable } from "stream";
 
 export type PGConfig = {
   host: string;
@@ -9,12 +9,28 @@ export type PGConfig = {
   user?: string;
   password?: string;
   database?: string;
-  // add ssl?: boolean if needed
+  ssl?: boolean;
+  sslmode?: string;
 };
+
+/**
+ * Creates a new Client instance from the config.
+ * Encapsulates the configuration mapping logic.
+ */
+function createClient(cfg: PGConfig): Client {
+  return new Client({
+    host: cfg.host,
+    port: cfg.port,
+    user: cfg.user,
+    ssl: cfg.ssl || undefined,
+    password: cfg.password || undefined,
+    database: cfg.database || undefined,
+  });
+}
 
 /** test connection quickly */
 export async function testConnection(cfg: PGConfig) {
-  const client = new Client(cfg);
+  const client = createClient(cfg);
   try {
     await client.connect();
     await client.end();
@@ -29,14 +45,80 @@ export async function testConnection(cfg: PGConfig) {
  * Returns true if successful (pg_cancel_backend returns boolean).
  */
 export async function pgCancel(cfg: PGConfig, targetPid: number) {
-  const c = new Client(cfg);
+  const c = createClient(cfg);
   try {
     await c.connect();
-    const res = await c.query('SELECT pg_cancel_backend($1) AS cancelled', [targetPid]);
+    const res = await c.query("SELECT pg_cancel_backend($1) AS cancelled", [
+      targetPid,
+    ]);
     await c.end();
     return res.rows?.[0]?.cancelled === true;
   } catch (err) {
-    try { await c.end(); } catch (e) {}
+    try {
+      await c.end();
+    } catch (e) {}
+    throw err;
+  }
+}
+
+/**
+ * Executes a simple SELECT * query to fetch all data from a single table.
+ * @param config - The PostgreSQL connection configuration.
+ * @param schemaName - The schema the table belongs to (e.g., 'public').
+ * @param tableName - The name of the table to query.
+ * @returns A Promise resolving to the query result rows (Array<any>).
+ */
+export async function fetchTableData(
+  config: PGConfig,
+  schemaName: string,
+  tableName: string
+): Promise<any[]> {
+  const client = createClient(config);
+  try {
+    await client.connect();
+
+    // Use quoting for identifiers to prevent SQL injection vulnerabilities from table/schema names.
+    const safeSchema = `"${schemaName.replace(/"/g, '""')}"`;
+    const safeTable = `"${tableName.replace(/"/g, '""')}"`;
+
+    const query = `SELECT * FROM ${safeSchema}.${safeTable};`;
+
+    const result = await client.query(query);
+
+    return result.rows;
+  } catch (error) {
+    throw new Error(
+      `Failed to fetch data from ${schemaName}.${tableName}: ${error}`
+    );
+  } finally {
+    try {
+      await client.end();
+    } catch (e) {
+      /* ignore client end errors */
+    }
+  }
+}
+
+/**
+ * listTables: Retrieves all user-defined tables and views.
+ */
+export async function listTables(connection: PGConfig) {
+  const client = createClient(connection);
+
+  try {
+    await client.connect();
+    const res = await client.query(
+      `SELECT table_schema as schema, table_name as name, table_type as type
+FROM information_schema.tables
+WHERE table_schema NOT IN ('pg_catalog','information_schema')
+ORDER BY table_schema, table_name;`
+    );
+    await client.end();
+    return res.rows; // [{schema, name, type}, ...]
+  } catch (err) {
+    try {
+      await client.end();
+    } catch (e) {}
     throw err;
   }
 }
@@ -54,7 +136,7 @@ export function streamQueryCancelable(
   onBatch: (rows: any[], columns: { name: string }[]) => Promise<void> | void,
   onDone?: () => void
 ): { promise: Promise<void>; cancel: () => Promise<void> } {
-  const client = new Client(cfg);
+  const client = createClient(cfg);
   let stream: Readable | null = null;
   let finished = false;
   let cancelled = false;
@@ -83,7 +165,7 @@ export function streamQueryCancelable(
 
     try {
       return await new Promise<void>((resolve, reject) => {
-        stream!.on('data', (row: any) => {
+        stream!.on("data", (row: any) => {
           // collect columns lazily
           if (columns === null) {
             columns = Object.keys(row).map((k) => ({ name: k }));
@@ -92,12 +174,14 @@ export function streamQueryCancelable(
           if (buffer.length >= batchSize) {
             // flush asynchronously, but capture errors
             flush().catch((e) => {
-              try { reject(e); } catch {}
+              try {
+                reject(e);
+              } catch {}
             });
           }
         });
 
-        stream!.on('end', async () => {
+        stream!.on("end", async () => {
           try {
             await flush();
             finished = true;
@@ -108,7 +192,7 @@ export function streamQueryCancelable(
           }
         });
 
-        stream!.on('error', (err) => {
+        stream!.on("error", (err) => {
           reject(err);
         });
       });
@@ -119,7 +203,9 @@ export function streamQueryCancelable(
           // nothing special here
         }
       } finally {
-        try { await client.end(); } catch (e) {}
+        try {
+          await client.end();
+        } catch (e) {}
       }
     }
   })();
@@ -130,7 +216,7 @@ export function streamQueryCancelable(
     cancelled = true;
 
     // 1) Attempt server-side cancel if we have the backend PID and cfg present
-    if (backendPid && typeof backendPid === 'number') {
+    if (backendPid && typeof backendPid === "number") {
       try {
         await pgCancel(cfg, backendPid);
         // After asking the server to cancel, still destroy local stream for immediate stop
@@ -141,13 +227,19 @@ export function streamQueryCancelable(
 
     // 2) Destroy stream locally to stop 'data' events and let promise reject/resolve
     try {
-      if (stream && typeof (stream as any).destroy === 'function') {
-        (stream as any).destroy(new Error('cancelled'));
+      if (stream && typeof (stream as any).destroy === "function") {
+        (stream as any).destroy(new Error("cancelled"));
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
 
     // 3) Close client connection
-    try { await client.end(); } catch (e) { /* ignore */ }
+    try {
+      await client.end();
+    } catch (e) {
+      /* ignore */
+    }
   }
 
   return { promise, cancel };

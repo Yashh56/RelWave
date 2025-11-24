@@ -9,6 +9,7 @@ import DatabaseDetail from './pages/DatabaseDetails';
 import NotFound from './pages/NotFound';
 import ERDiagram from './pages/ERDiagram';
 import QueryBuilder from './pages/QueryBuilder';
+import { ThemeProvider } from './components/theme-provider';
 
 
 
@@ -19,18 +20,20 @@ const queryClient = new QueryClient();
 
 
 createRoot(document.getElementById('root')!).render(
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/:id" element={<DatabaseDetail />} />
-          <Route path="/:id/query-builder" element={<QueryBuilder />} />
-          <Route path="/:id/er-diagram" element={<ERDiagram />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+  <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/:id" element={<DatabaseDetail />} />
+            <Route path="/:id/query-builder" element={<QueryBuilder />} />
+            <Route path="/:id/er-diagram" element={<ERDiagram />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  </ThemeProvider>
 );
