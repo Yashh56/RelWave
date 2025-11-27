@@ -65,6 +65,40 @@ export interface RunQueryParams {
   batchSize?: number;
 }
 
+// --- NEW INTERFACES FOR SCHEMA EXPLORER ---
+
+export interface ColumnDetails {
+    name: string;
+    type: string;
+    nullable: boolean;
+    isPrimaryKey: boolean;
+    isForeignKey: boolean;
+    isUnique: boolean; // Note: Requires extra backend query, mocked to false for simplicity
+    defaultValue: string | null;
+}
+
+export interface TableSchemaDetails {
+    name: string;
+    type: 'BASE TABLE' | 'VIEW' | string;
+    columns: ColumnDetails[];
+}
+
+
+export interface SchemaGroup {
+    name: string;
+    tables: TableSchemaDetails[];
+}
+
+export interface DatabaseSchemaDetails {
+    name: string;
+    schemas: SchemaGroup[];
+}
+
+export interface DatabaseStats {
+    count: number;
+    total_size_pretty: string;
+}
+
 class BridgeApiService {
   // ------------------------------------
   // 1. SESSION MANAGEMENT METHODS (query.*)
@@ -317,8 +351,7 @@ class BridgeApiService {
     }
   }
 
-  async getDatabaseStats(id: string): Promise<any[]> {
-    try {
+async getDatabaseStats(id: string): Promise<DatabaseStats | {}> {    try {
       if (!id) {
         throw new Error("Database ID is required");
       }
@@ -327,6 +360,19 @@ class BridgeApiService {
     } catch (error: any) {
       console.error("Failed to get database stats:", error);
       throw new Error(`Failed to get database stats: ${error.message}`);
+    }
+  }
+
+  async getSchema(id: string): Promise<DatabaseSchemaDetails | null> {
+    try {
+      if (!id) {
+        throw new Error("Database ID is required.");
+      }
+      const result = await bridgeRequest("db.getSchema", { id });
+      return result?.data || null;
+    } catch (error: any) {
+      console.error("Failed to fetch schema details:", error);
+      throw new Error(`Failed to fetch schema details: ${error.message}`);
     }
   }
 

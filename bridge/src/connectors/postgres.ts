@@ -102,17 +102,31 @@ export async function fetchTableData(
 /**
  * listTables: Retrieves all user-defined tables and views.
  */
-export async function listTables(connection: PGConfig) {
+export async function listTables(connection: PGConfig, schemaName?: string) {
   const client = createClient(connection);
+
+  let query = `
+      SELECT table_schema AS schema, table_name AS name, table_type AS type
+      FROM information_schema.tables
+      WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+    `;
+  let queryParams: string[] = [];
+
+  // Add schema filter if provided
+  if (schemaName) {
+    // Ensure schema name is treated as lowercase to match PostgreSQL default behavior
+    query += ` AND table_schema = $1`;
+    queryParams.push(schemaName.toLowerCase());
+  }
+
+  query += ` ORDER BY table_schema, table_name;`;
 
   try {
     await client.connect();
-    const res = await client.query(
-      `SELECT table_schema as schema, table_name as name, table_type as type
-FROM information_schema.tables
-WHERE table_schema NOT IN ('pg_catalog','information_schema')
-ORDER BY table_schema, table_name;`
-    );
+
+    // Execute the dynamically constructed query
+    const res = await client.query(query, queryParams);
+
     await client.end();
     return res.rows; // [{schema, name, type}, ...]
   } catch (err) {
@@ -269,5 +283,66 @@ export async function getDBStats(connection: PGConfig) {
     }
     // Re-throw the error so the calling function knows something went wrong
     throw error;
+  }
+}
+
+/**
+ * Retrieves list of schemas in the database.
+ */
+export async function listSchemas(connection: PGConfig) {
+  const client = createClient(connection);
+  try {
+    await client.connect();
+    const res = await client.query(
+      `SELECT nspname AS name
+             FROM pg_namespace
+             WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+             AND nspname NOT LIKE 'pg_temp_%' AND nspname NOT LIKE 'pg_toast_temp_%'
+             ORDER BY nspname;`
+    );
+    await client.end();
+    return res.rows; // [{ name: 'public' }, { name: 'analytics' }, ...]
+  } catch (err) {
+    try {
+      await client.end();
+    } catch (e) {}
+    throw err;
+  }
+}
+
+/** getTableDetails: Retrieves column details for a specific table. */
+export async function getTableDetails(
+  connection: PGConfig,
+  schemaName: string,
+  tableName: string
+) {
+  const client = createClient(connection);
+  try {
+    await client.connect();
+    const res = await client.query(
+      `SELECT
+                a.attname AS name,
+                format_type(a.atttypid, a.atttypmod) AS type,
+                a.attnotnull AS not_nullable,
+                pg_get_expr(d.adbin, d.adrelid) AS default_value,
+                (SELECT TRUE FROM pg_constraint pc WHERE pc.conrelid = a.attrelid AND a.attnum = ANY(pc.conkey) AND pc.contype = 'p') AS is_primary_key,
+                (SELECT TRUE FROM pg_constraint fc WHERE fc.conrelid = a.attrelid AND a.attnum = ANY(fc.conkey) AND fc.contype = 'f') AS is_foreign_key
+             FROM 
+                pg_attribute a
+             LEFT JOIN 
+                pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+             WHERE 
+                a.attrelid = $1::regclass -- Use $1::regclass for direct comparison against OID/regclass
+                AND a.attnum > 0
+                AND NOT a.attisdropped
+             ORDER BY a.attnum;`,
+      [`${schemaName}.${tableName}`]
+    );
+    await client.end();
+
+    return res.rows;
+  } catch (err) {
+    // ... (Error handling)
+    throw err;
   }
 }

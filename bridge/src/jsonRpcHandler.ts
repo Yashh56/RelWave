@@ -21,6 +21,8 @@ import {
   fetchTableData,
   streamQueryCancelable,
   getDBStats,
+  getTableDetails,
+  listSchemas,
 } from "./connectors/postgres";
 import * as dbStore from "./services/dbStore";
 import { SessionManager } from "./sessionManager";
@@ -437,7 +439,7 @@ export function registerDbHandlers(
 
   rpcRegister("db.getStats", async (params: any, id: number | string) => {
     try {
-     const { id: dbId } = params || {};
+      const { id: dbId } = params || {};
       if (!dbId)
         return rpc.sendError(id, {
           code: "BAD_REQUEST",
@@ -459,14 +461,96 @@ export function registerDbHandlers(
         database: db.database,
       };
       const stats = await getDBStats(conn);
-      rpc.sendResponse(id, { ok: true, data: stats }); 
-    
+      rpc.sendResponse(id, { ok: true, data: stats });
     } catch (error) {
       logger?.error({ error }, "db.getStats failed");
       rpc.sendError(id, { code: "IO_ERROR", message: String(error) });
     }
   });
 
+  rpcRegister("db.getSchema", async (params: any, id: number | string) => {
+    try {
+      const { id: dbId } = params || {};
+      if (!dbId) {
+        return rpc.sendError(id, {
+          code: "BAD_REQUEST",
+          message: "Missing id",
+        });
+      }
+
+      const dbMeta = await dbStore.getDB(dbId);
+      if (!dbMeta) {
+        return rpc.sendError(id, {
+          code: "NOT_FOUND",
+          message: "DB not found",
+        });
+      }
+
+      // 1. Build Connection Config
+      const pwd = await dbStore.getPasswordFor(dbMeta);
+      const conn = {
+        host: dbMeta.host,
+        port: dbMeta.port,
+        user: dbMeta.user,
+        password: pwd ?? undefined,
+        database: dbMeta.database,
+        ssl: dbMeta.ssl,
+      };
+
+      // 2. Fetch Schemas
+      const schemas = await listSchemas(conn);
+
+      const finalSchemas = [];
+
+      // 3. Loop through schemas to fetch tables and details
+      for (const schema of schemas) {
+        // Get all tables/views in this schema (you'll need to modify your listTables to accept schemaName)
+        const tablesInSchema = await listTables(conn, schema.name);
+
+        const finalTables = [];
+
+        // 4. Loop through tables to fetch columns and constraints
+        for (const table of tablesInSchema) {
+          const tableDetails = await getTableDetails(
+            conn,
+            table.schema,
+            table.name
+          );
+
+          const columns = tableDetails.map((col) => ({
+            name: col.name,
+            type: col.type,
+            nullable: !col.not_nullable,
+            isPrimaryKey: col.is_primary_key === true,
+            isForeignKey: col.is_foreign_key === true,
+            defaultValue: col.default_value || null,
+            isUnique: false, // Additional lookup needed for unique/indexes
+          }));
+
+          finalTables.push({
+            name: table.name,
+            type: table.type,
+            columns: columns,
+          });
+        }
+
+        finalSchemas.push({
+          name: schema.name,
+          tables: finalTables,
+        });
+      }
+
+      const responseData = {
+        name: dbMeta.name,
+        schemas: finalSchemas,
+      };
+
+      rpc.sendResponse(id, { ok: true, data: responseData });
+    } catch (e: any) {
+      logger?.error({ e }, "db.getSchema failed");
+      rpc.sendError(id, { code: "IO_ERROR", message: String(e) });
+    }
+  });
   // helper to register methods into the bridge's rpc dispatcher
   function rpcRegister(
     method: string,
