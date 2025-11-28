@@ -19,7 +19,11 @@ import {
   listTables,
   testConnection,
   fetchTableData,
-} from "./connectors/postgres"; // <-- ADDED fetchTableData
+  streamQueryCancelable,
+  getDBStats,
+  getTableDetails,
+  listSchemas,
+} from "./connectors/postgres";
 import * as dbStore from "./services/dbStore";
 import { SessionManager } from "./sessionManager";
 import { randomUUID } from "node:crypto";
@@ -32,6 +36,20 @@ type Rpc = {
   ) => void;
   sendNotification?: (method: string, params?: any) => void;
 };
+
+// utility: helper to send a query error notification
+function notifyQueryError(rpc: Rpc, sessionId: string, err: any) {
+  try {
+    if (rpc.sendNotification) {
+      rpc.sendNotification("query.error", {
+        sessionId,
+        error: { message: String(err) },
+      });
+    }
+  } catch (e) {
+    /* ignore */
+  }
+}
 
 // 1. UPDATED: Added SessionManager to the function signature
 export function registerDbHandlers(
@@ -47,7 +65,6 @@ export function registerDbHandlers(
     async (params: any, id: number | string) => {
       try {
         const sessionId = randomUUID();
-        // You can store any initial configuration or state here
         sessions.create(sessionId, params?.config || {});
         rpc.sendResponse(id, { ok: true, data: { sessionId } });
       } catch (e: any) {
@@ -67,7 +84,6 @@ export function registerDbHandlers(
           message: "Missing sessionId",
         });
       }
-      // Call the cancel function registered in the SessionManager
       const ok = await sessions.cancel(sessionId);
       rpc.sendResponse(id, { ok: true, data: { cancelled: ok } });
     } catch (e: any) {
@@ -77,6 +93,145 @@ export function registerDbHandlers(
   });
 
   // --- QUERY HANDLERS (query.*) ---
+
+  // query.run - NEW HANDLER for custom SQL execution
+  rpcRegister("query.run", async (params: any, id: number | string) => {
+    const { sessionId, dbId, sql, batchSize = 200 } = params || {};
+
+    if (!sessionId || !dbId || !sql) {
+      return rpc.sendError(id, {
+        code: "BAD_REQUEST",
+        message: "Missing sessionId, dbId, or sql",
+      });
+    }
+
+    const db = await dbStore.getDB(dbId);
+    if (!db) {
+      return rpc.sendError(id, { code: "NOT_FOUND", message: "DB not found" });
+    }
+
+    const pwd = await dbStore.getPasswordFor(db);
+    const conn = {
+      host: db.host,
+      port: db.port,
+      user: db.user,
+      password: pwd ?? undefined,
+      ssl: db.ssl,
+      database: db.database,
+    };
+
+    let cancelled = false;
+    const cancelState: { fn: (() => Promise<void>) | null } = { fn: null };
+
+    // Notify the client that the query is starting
+    rpc.sendNotification?.("query.started", {
+      sessionId,
+      info: { sqlPreview: (sql || "").slice(0, 200), dbId },
+    });
+
+    // State for progress tracking
+    const start = Date.now();
+    let batchIndex = 0;
+    let totalRows = 0;
+    let lastProgressEmit = Date.now();
+
+    try {
+      // Create cancellable runner from postgres.ts
+      const runner = streamQueryCancelable(
+        conn,
+        sql,
+        batchSize,
+        async (rows, columns) => {
+          if (cancelled) throw new Error("query cancelled");
+          totalRows += rows.length;
+
+          // Send batch results to the client
+          rpc.sendNotification?.("query.result", {
+            sessionId,
+            batchIndex: batchIndex++,
+            rows,
+            columns,
+            complete: false,
+          });
+
+          // Emit progress every 500ms
+          const now = Date.now();
+          if (now - lastProgressEmit >= 500) {
+            lastProgressEmit = now;
+            rpc.sendNotification?.("query.progress", {
+              sessionId,
+              rowsSoFar: totalRows,
+              elapsedMs: now - start,
+            });
+          }
+        },
+        () => {
+          // onDone callback
+          rpc.sendNotification?.("query.done", {
+            sessionId,
+            rows: totalRows,
+            timeMs: Date.now() - start,
+            status: "success",
+          });
+        }
+      );
+
+      // Set cancel function synchronously to avoid race conditions
+      cancelState.fn = async () => {
+        try {
+          await runner.cancel();
+        } catch (e) {
+          /* ignore */
+        }
+      };
+
+      // Register cancel handler with session manager
+      sessions.registerCancel(sessionId, async () => {
+        cancelled = true;
+        if (cancelState.fn) await cancelState.fn();
+      });
+
+      // Run the query promise in the background
+      (async () => {
+        try {
+          await runner.promise;
+        } catch (err: any) {
+          if (String(err).toLowerCase().includes("cancel") || cancelled) {
+            // Send cancelled status
+            rpc.sendNotification?.("query.done", {
+              sessionId,
+              rows: totalRows,
+              timeMs: Date.now() - start,
+              status: "cancelled",
+            });
+          } else {
+            // Send query error
+            logger.error({ err, sessionId }, "streamQuery error");
+            notifyQueryError(rpc, sessionId, err);
+          }
+        } finally {
+          // Cleanup: final progress and session removal
+          try {
+            rpc.sendNotification?.("query.progress", {
+              sessionId,
+              rowsSoFar: totalRows,
+              elapsedMs: Date.now() - start,
+            });
+          } catch (e) {}
+          sessions.remove(sessionId);
+          cancelState.fn = null;
+        }
+      })();
+
+      // Respond immediately to the request, indicating the background job started
+      rpc.sendResponse(id, { ok: true });
+    } catch (initError: any) {
+      // Catch errors during setup (e.g., connection failure before streaming starts)
+      sessions.remove(sessionId);
+      logger.error({ initError }, "query.run initial setup failed");
+      rpc.sendError(id, { code: "SETUP_ERROR", message: String(initError) });
+    }
+  });
 
   // query.fetchTableData - NEW HANDLER
   rpcRegister(
@@ -122,10 +277,8 @@ export function registerDbHandlers(
 
   // db.list
   rpcRegister("db.list", async (params: any, id: number | string) => {
-    // ... (unchanged db.list implementation)
     try {
       const dbs = await dbStore.listDBs();
-      // Do not return credentialId/passwords in list — just metadata
       const safe = dbs.map((d) => ({ ...d, credentialId: undefined }));
       rpc.sendResponse(id, { ok: true, data: safe });
     } catch (e: any) {
@@ -136,7 +289,6 @@ export function registerDbHandlers(
 
   // db.get
   rpcRegister("db.get", async (params: any, id: number | string) => {
-    // ... (unchanged db.get implementation)
     try {
       const { id: dbId } = params || {};
       if (!dbId)
@@ -160,7 +312,6 @@ export function registerDbHandlers(
 
   // db.add
   rpcRegister("db.add", async (params: any, id: number | string) => {
-    // ... (unchanged db.add implementation)
     try {
       const payload = params || {};
       const required = ["name", "host", "port", "user", "database"];
@@ -180,7 +331,6 @@ export function registerDbHandlers(
 
   // db.update
   rpcRegister("db.update", async (params: any, id: number | string) => {
-    // ... (unchanged db.update implementation)
     try {
       const payload = params || {};
       if (!payload.id)
@@ -198,7 +348,6 @@ export function registerDbHandlers(
 
   // db.delete
   rpcRegister("db.delete", async (params: any, id: number | string) => {
-    // ... (unchanged db.delete implementation)
     try {
       const { id: dbId } = params || {};
       if (!dbId)
@@ -216,7 +365,6 @@ export function registerDbHandlers(
 
   // db.connectTest
   rpcRegister("db.connectTest", async (params: any, id: number | string) => {
-    // ... (unchanged db.connectTest implementation)
     try {
       const { id: dbId, connection } = params || {};
       let conn: any = null;
@@ -259,7 +407,6 @@ export function registerDbHandlers(
 
   // db.listTables
   rpcRegister("db.listTables", async (params: any, id: number | string) => {
-    // ... (unchanged db.listTables implementation)
     try {
       const { id: dbId } = params || {};
       if (!dbId)
@@ -290,6 +437,120 @@ export function registerDbHandlers(
     }
   });
 
+  rpcRegister("db.getStats", async (params: any, id: number | string) => {
+    try {
+      const { id: dbId } = params || {};
+      if (!dbId)
+        return rpc.sendError(id, {
+          code: "BAD_REQUEST",
+          message: "Missing id",
+        });
+      const db = await dbStore.getDB(dbId);
+      if (!db)
+        return rpc.sendError(id, {
+          code: "NOT_FOUND",
+          message: "DB not found",
+        });
+      const pwd = await dbStore.getPasswordFor(db);
+      const conn = {
+        host: db.host,
+        port: db.port,
+        user: db.user,
+        password: pwd ?? undefined,
+        ssl: db.ssl,
+        database: db.database,
+      };
+      const stats = await getDBStats(conn);
+      rpc.sendResponse(id, { ok: true, data: stats });
+    } catch (error) {
+      logger?.error({ error }, "db.getStats failed");
+      rpc.sendError(id, { code: "IO_ERROR", message: String(error) });
+    }
+  });
+
+  rpcRegister("db.getSchema", async (params: any, id: number | string) => {
+    try {
+      const { id: dbId } = params || {};
+      if (!dbId) {
+        return rpc.sendError(id, {
+          code: "BAD_REQUEST",
+          message: "Missing id",
+        });
+      }
+
+      const dbMeta = await dbStore.getDB(dbId);
+      if (!dbMeta) {
+        return rpc.sendError(id, {
+          code: "NOT_FOUND",
+          message: "DB not found",
+        });
+      }
+
+      // 1. Build Connection Config
+      const pwd = await dbStore.getPasswordFor(dbMeta);
+      const conn = {
+        host: dbMeta.host,
+        port: dbMeta.port,
+        user: dbMeta.user,
+        password: pwd ?? undefined,
+        database: dbMeta.database,
+        ssl: dbMeta.ssl,
+      };
+
+      // 2. Fetch Schemas
+      const schemas = await listSchemas(conn);
+
+      const finalSchemas = [];
+
+      // 3. Loop through schemas to fetch tables and details
+      for (const schema of schemas) {
+        // Get all tables/views in this schema (you'll need to modify your listTables to accept schemaName)
+        const tablesInSchema = await listTables(conn, schema.name);
+
+        const finalTables = [];
+
+        // 4. Loop through tables to fetch columns and constraints
+        for (const table of tablesInSchema) {
+          const tableDetails = await getTableDetails(
+            conn,
+            table.schema,
+            table.name
+          );
+
+          const columns = tableDetails.map((col) => ({
+            name: col.name,
+            type: col.type,
+            nullable: !col.not_nullable,
+            isPrimaryKey: col.is_primary_key === true,
+            isForeignKey: col.is_foreign_key === true,
+            defaultValue: col.default_value || null,
+            isUnique: false, // Additional lookup needed for unique/indexes
+          }));
+
+          finalTables.push({
+            name: table.name,
+            type: table.type,
+            columns: columns,
+          });
+        }
+
+        finalSchemas.push({
+          name: schema.name,
+          tables: finalTables,
+        });
+      }
+
+      const responseData = {
+        name: dbMeta.name,
+        schemas: finalSchemas,
+      };
+
+      rpc.sendResponse(id, { ok: true, data: responseData });
+    } catch (e: any) {
+      logger?.error({ e }, "db.getSchema failed");
+      rpc.sendError(id, { code: "IO_ERROR", message: String(e) });
+    }
+  });
   // helper to register methods into the bridge's rpc dispatcher
   function rpcRegister(
     method: string,

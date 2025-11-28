@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Database, Plus, Search, Server, Loader2, RefreshCw, AlertCircle } from "lucide-react";
+import { Database, Plus, Search, Server, RefreshCw, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DatabaseCard } from "@/components/DatabaseCard";
@@ -24,6 +24,14 @@ import { bridgeApi, type DatabaseConnection } from "@/services/bridgeApi";
 import { startBridgeListeners, stopBridgeListeners, isBridgeReady } from "@/services/bridgeClient";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ModeToggle } from "@/components/mode-toggle";
+import Loader from "@/components/Loader";
+
+// Type for database stats
+interface DatabaseStats {
+  total_tables: string;
+  total_db_size: string;
+  total_db_size_mb: string;
+}
 
 const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -32,6 +40,9 @@ const Index = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [bridgeReady, setBridgeReady] = useState(false);
+
+  // Store stats for each database by ID
+  const [databaseStats, setDatabaseStats] = useState<Record<string, DatabaseStats>>({});
 
   // Form state
   const [formData, setFormData] = useState({
@@ -94,6 +105,9 @@ const Index = () => {
       const dbs = await bridgeApi.listDatabases();
       setDatabases(dbs);
       console.log('Loaded databases:', dbs);
+
+      // Load stats for all databases
+      await loadDatabasesStats(dbs);
     } catch (error: any) {
       console.error('Failed to load databases:', error);
       toast.error("Failed to load databases", {
@@ -101,6 +115,67 @@ const Index = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadDatabasesStats = async (dbs?: DatabaseConnection[]) => {
+    const databasesToLoad = dbs || databases;
+
+    if (!isBridgeReady() || databasesToLoad.length === 0) {
+      console.warn('Bridge not ready or no databases to load stats for');
+      return;
+    }
+
+    // Helper to normalize various API shapes into DatabaseStats
+    const normalizeStats = (raw: any): DatabaseStats | null => {
+      if (!raw) return null;
+
+      // If API returns an array, prefer the first item
+      const item = Array.isArray(raw) ? raw[0] : raw;
+
+      if (typeof item !== "object") return null;
+
+      const total_tables = item.total_tables ?? item.totalTables ?? item.tables;
+      const total_db_size = item.total_db_size ?? item.totalDbSize ?? item.data_size;
+      const total_db_size_mb = item.total_db_size_mb ?? item.totalDbSizeMb ?? item.data_size_mb;
+
+      if (total_tables == null || total_db_size == null || total_db_size_mb == null) {
+        return null;
+      }
+
+      return {
+        total_tables: String(total_tables),
+        total_db_size: String(total_db_size),
+        total_db_size_mb: String(total_db_size_mb),
+      };
+    };
+
+    try {
+      // Fetch stats for all databases in parallel
+      const statsPromises = databasesToLoad.map(async (db) => {
+        try {
+          const stats = await bridgeApi.getDatabaseStats(db.id);
+          return { id: db.id, stats };
+        } catch (error) {
+          console.error(`Failed to load stats for ${db.name}:`, error);
+          return { id: db.id, stats: null };
+        }
+      });
+
+      const results = await Promise.all(statsPromises);
+
+      // Update stats state
+      const statsMap: Record<string, DatabaseStats> = {};
+      results.forEach(({ id, stats }) => {
+        const normalized = normalizeStats(stats);
+        if (normalized) {
+          statsMap[id] = normalized;
+        }
+      });
+
+      setDatabaseStats(statsMap);
+    } catch (error) {
+      console.error('Failed to load database stats:', error);
     }
   };
 
@@ -138,8 +213,8 @@ const Index = () => {
         host: formData.host,
         port: parseInt(formData.port),
         user: formData.user,
-        ssl: formData.ssl, // Use the form state for SSL
-        sslmode: formData.ssl ? (formData.sslmode || 'require') : 'disable', // Use form state for sslmode if needed, default to require
+        ssl: formData.ssl,
+        sslmode: formData.ssl ? (formData.sslmode || 'require') : 'disable',
         password: formData.password,
         database: formData.database
       });
@@ -191,7 +266,6 @@ const Index = () => {
         toast.success("Connection successful", {
           description: `Successfully connected to ${name}`
         });
-        console.log(result)
       } else {
         toast.error("Connection failed", {
           description: result.message || "Could not connect to database"
@@ -204,17 +278,24 @@ const Index = () => {
     }
   };
 
-  const connectedCount = databases.length; // All saved databases are considered "connected"
-  const totalTables = databases.length * 25; // Mock calculation - you can fetch real data
-  const totalSize = "0 GB"; // Mock value - you can calculate real size
+  // Calculate aggregate stats
+  const connectedCount = databases.length;
+  const totalTables = Object.values(databaseStats).reduce((sum, stats) => {
+    return sum + parseInt(stats.total_tables || '0');
+  }, 0);
+  const totalSizeMB = Object.values(databaseStats).reduce((sum, stats) => {
+    return sum + parseFloat(stats.total_db_size_mb || '0');
+  }, 0);
+  const totalSize = totalSizeMB > 1024
+    ? `${(totalSizeMB / 1024).toFixed(2)} GB`
+    : `${totalSizeMB.toFixed(2)} MB`;
 
   // Show bridge initialization status
   if (!bridgeReady && loading) {
     return (
-      // Added dark mode classes for bg and text
       <div className="h-screen bg-gray-50 dark:bg-[#050505] text-black dark:text-white flex items-center justify-center overflow-hidden">
         <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-cyan-500 mx-auto mb-4" />
+          <Loader />
           <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">Initializing Database Bridge</h2>
           <p className="text-gray-500 dark:text-gray-400">Please wait while we connect to the bridge...</p>
         </div>
@@ -225,7 +306,6 @@ const Index = () => {
   // Show error if bridge failed to initialize
   if (!bridgeReady && !loading) {
     return (
-      // Added dark mode classes for bg and text
       <div className="h-screen bg-gray-50 dark:bg-[#050505] text-black dark:text-white flex items-center justify-center overflow-hidden">
         <div className="text-center max-w-md">
           <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
@@ -242,9 +322,7 @@ const Index = () => {
   }
 
   return (
-    // Base container: Light: bg-gray-50, Dark: bg-[#050505]
     <div className="h-screen flex flex-col bg-gray-50 dark:bg-[#050505] text-black dark:text-white overflow-hidden">
-      {/* Header: Light: bg-white/80 border-gray-200, Dark: bg-black/30 border-primary/10 */}
       <header className="border-b border-gray-200 dark:border-primary/10 bg-white/80 dark:bg-black/30 backdrop-blur-xl sticky top-0 z-50 shadow-md dark:shadow-lg flex-shrink-0">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -259,13 +337,8 @@ const Index = () => {
                 <p className="text-sm text-gray-500 dark:text-gray-400">Manage and visualize your connections</p>
               </div>
             </div>
-            {/* Control buttons area */}
             <div className="flex items-center gap-2">
-
-              {/* Mode Toggle placed first */}
               <ModeToggle />
-
-              {/* Refresh Button: Light: border-gray-300, Dark: border-gray-700, Text: gray-700/white */}
               <Button
                 variant="outline"
                 size="icon"
@@ -283,7 +356,6 @@ const Index = () => {
                     Add Connection
                   </Button>
                 </DialogTrigger>
-                {/* Dialog Content: Light: bg-white, Dark: bg-gray-900/90 */}
                 <DialogContent className="sm:max-w-[500px] bg-white dark:bg-gray-900/90 backdrop-blur-sm text-black dark:text-white border-gray-300 dark:border-primary/20 rounded-xl shadow-2xl">
                   <DialogHeader>
                     <DialogTitle className="text-2xl font-bold text-black dark:text-white">
@@ -296,7 +368,6 @@ const Index = () => {
                   <div className="space-y-5 py-4">
                     <div className="space-y-2">
                       <Label htmlFor="db-name" className="text-gray-700 dark:text-gray-300">Connection Name</Label>
-                      {/* Input: Light: bg-gray-100 border-gray-300, Dark: bg-gray-800/70 border-gray-700 */}
                       <Input
                         id="db-name"
                         placeholder="My Production DB"
@@ -308,11 +379,9 @@ const Index = () => {
                     <div className="space-y-2">
                       <Label htmlFor="db-type" className="text-gray-700 dark:text-gray-300">Database Type</Label>
                       <Select value={formData.type} onValueChange={(val) => handleInputChange('type', val)}>
-                        {/* Select Trigger: Light: bg-gray-100 border-gray-300, Dark: bg-gray-800/70 border-gray-700 */}
                         <SelectTrigger id="db-type" className="bg-gray-100 border-gray-300 dark:bg-gray-800/70 dark:border-gray-700 focus:border-cyan-500 text-black dark:text-white transition-colors">
                           <SelectValue placeholder="Select database type" />
                         </SelectTrigger>
-                        {/* Select Content: Light: bg-white, Dark: bg-gray-900 */}
                         <SelectContent className="bg-white dark:bg-gray-900 border-gray-300 dark:border-primary/20 text-black dark:text-white shadow-xl">
                           <SelectItem value="postgresql">PostgreSQL</SelectItem>
                           <SelectItem value="mysql">MySQL</SelectItem>
@@ -387,12 +456,10 @@ const Index = () => {
                       </Label>
                     </div>
                   </div>
-                  {/* Footer border: Light: border-gray-300/50, Dark: border-gray-700/50 */}
                   <div className="flex justify-end gap-2 pt-4 border-t border-gray-300/50 dark:border-gray-700/50">
                     <Button
                       variant="outline"
                       onClick={() => setIsDialogOpen(false)}
-                      // Cancel Button: Light: border-gray-400 text-gray-700, Dark: border-gray-600 text-gray-300
                       className="border-gray-400 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
                     >
                       Cancel
@@ -411,11 +478,9 @@ const Index = () => {
         </div>
       </header>
 
-      {/* MAIN CONTENT AREA */}
       <main className="flex-grow overflow-y-auto">
         <div className="container mx-auto px-4 py-8">
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-            {/* Stats Card 1: Light: bg-white border-gray-200, Dark: bg-gray-800/50 border-primary/10 */}
             <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-primary/10 rounded-xl p-6 shadow-md dark:shadow-2xl hover:border-cyan-500/50 transition-all duration-300">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-cyan-500/20 rounded-xl">
@@ -427,7 +492,6 @@ const Index = () => {
                 </div>
               </div>
             </div>
-            {/* Stats Card 2 */}
             <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-primary/10 rounded-xl p-6 shadow-md dark:shadow-2xl hover:border-emerald-500/50 transition-all duration-300">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-emerald-500/20 rounded-xl">
@@ -439,7 +503,6 @@ const Index = () => {
                 </div>
               </div>
             </div>
-            {/* Stats Card 3 */}
             <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-primary/10 rounded-xl p-6 shadow-md dark:shadow-2xl hover:border-violet-500/50 transition-all duration-300">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-violet-500/20 rounded-xl">
@@ -451,7 +514,6 @@ const Index = () => {
                 </div>
               </div>
             </div>
-            {/* Stats Card 4 */}
             <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-primary/10 rounded-xl p-6 shadow-md dark:shadow-2xl hover:border-amber-500/50 transition-all duration-300">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-amber-500/20 rounded-xl">
@@ -465,12 +527,9 @@ const Index = () => {
             </div>
           </div>
 
-          {/* Search Bar */}
           <div className="mb-8">
             <div className="relative max-w-full lg:max-w-xl">
-              {/* Search Icon: Light: text-gray-400, Dark: text-gray-500 */}
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
-              {/* Input: Light: bg-white border-gray-300, Dark: bg-gray-800/70 border-primary/20 */}
               <Input
                 placeholder="Search by connection name..."
                 value={searchQuery}
@@ -480,42 +539,40 @@ const Index = () => {
             </div>
           </div>
 
-          {/* Heading: Light: text-gray-800, Dark: text-gray-200 */}
           <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-gray-200">Active Connections</h2>
 
           {loading ? (
             <div className="flex items-center justify-center py-20">
-              <Loader2 className="h-8 w-8 animate-spin text-cyan-500" />
+              <Loader />
             </div>
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6">
-                {filteredDatabases.map((db) => (
-                  <DatabaseCard
-                    key={db.id}
-                    id={db.id}
-                    name={db.name}
-                    type={db.type}
-                    status="connected"
-                    tables={25}
-                    size="850 MB"
-                    host={`${db.host}:${db.port}`}
-                    onDelete={() => handleDeleteDatabase(db.id, db.name)}
-                    onTest={() => handleTestConnection(db.id, db.name)}
-                  />
-                ))}
+                {filteredDatabases.map((db) => {
+                  const stats = databaseStats[db.id];
+                  return (
+                    <DatabaseCard
+                      key={db.id}
+                      id={db.id}
+                      name={db.name}
+                      type={db.type}
+                      status="connected"
+                      tables={stats ? parseInt(stats.total_tables) : 0}
+                      size={stats ? `${parseFloat(stats.total_db_size_mb).toFixed(2)} MB` : '0 MB'}
+                      host={`${db.host}:${db.port}`}
+                      onDelete={() => handleDeleteDatabase(db.id, db.name)}
+                      onTest={() => handleTestConnection(db.id, db.name)}
+                    />
+                  );
+                })}
               </div>
 
               {filteredDatabases.length === 0 && (
-                // Empty State Border: Light: border-gray-300, Dark: border-gray-700
                 <div className="text-center py-20 border border-dashed border-gray-300 dark:border-gray-700 rounded-xl mt-8">
-                  {/* Icon: Light: text-gray-400, Dark: text-gray-600 */}
                   <Database className="h-16 w-16 text-gray-400 dark:text-gray-600 mx-auto mb-6" />
-                  {/* Heading: Light: text-gray-700, Dark: text-gray-200 */}
                   <h3 className="text-xl font-semibold mb-3 text-gray-700 dark:text-gray-200">
                     {databases.length === 0 ? 'No connections yet' : 'No matching connections found'}
                   </h3>
-                  {/* Text: Light: text-gray-500, Dark: text-gray-400 */}
                   <p className="text-gray-500 dark:text-gray-400 mb-6">
                     {databases.length === 0
                       ? 'Get started by adding your first database connection.'
@@ -523,7 +580,7 @@ const Index = () => {
                   </p>
                   <Button
                     onClick={() => setIsDialogOpen(true)}
-                    className="bg-gradient-to-r from-cyan-500 to-fuchsia-600 hover:from-cyan-600 hover:to-fuchsia-700 transition-all shadow-xl shadow-fuchsia-500/20"
+                    className="bg-linear-to-r from-cyan-500 to-fuchsia-600 hover:from-cyan-600 hover:to-fuchsia-700 transition-all shadow-xl shadow-fuchsia-500/20"
                   >
                     <Plus className="h-4 w-4 mr-2" />
                     New Connection
