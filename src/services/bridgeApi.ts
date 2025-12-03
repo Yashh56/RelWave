@@ -68,35 +68,34 @@ export interface RunQueryParams {
 // --- NEW INTERFACES FOR SCHEMA EXPLORER ---
 
 export interface ColumnDetails {
-    name: string;
-    type: string;
-    nullable: boolean;
-    isPrimaryKey: boolean;
-    isForeignKey: boolean;
-    isUnique: boolean; // Note: Requires extra backend query, mocked to false for simplicity
-    defaultValue: string | null;
+  name: string;
+  type: string;
+  nullable: boolean;
+  isPrimaryKey: boolean;
+  isForeignKey: boolean;
+  isUnique: boolean; // Note: Requires extra backend query, mocked to false for simplicity
+  defaultValue: string | null;
 }
 
 export interface TableSchemaDetails {
-    name: string;
-    type: 'BASE TABLE' | 'VIEW' | string;
-    columns: ColumnDetails[];
+  name: string;
+  type: "BASE TABLE" | "VIEW" | string;
+  columns: ColumnDetails[];
 }
 
-
 export interface SchemaGroup {
-    name: string;
-    tables: TableSchemaDetails[];
+  name: string;
+  tables: TableSchemaDetails[];
 }
 
 export interface DatabaseSchemaDetails {
-    name: string;
-    schemas: SchemaGroup[];
+  name: string;
+  schemas: SchemaGroup[];
 }
 
 export interface DatabaseStats {
-    count: number;
-    total_size_pretty: string;
+  count: number;
+  total_size_pretty: string;
 }
 
 class BridgeApiService {
@@ -241,7 +240,7 @@ class BridgeApiService {
       }
       console.log("Adding database with params:", params);
       const result = await bridgeRequest("db.add", params);
-
+      console.log("Add database result:", result);
       if (!result?.ok) {
         throw new Error("Failed to add database");
       }
@@ -351,7 +350,8 @@ class BridgeApiService {
     }
   }
 
-async getDatabaseStats(id: string): Promise<DatabaseStats | {}> {    try {
+  async getDatabaseStats(id: string): Promise<DatabaseStats | {}> {
+    try {
       if (!id) {
         throw new Error("Database ID is required");
       }
@@ -369,6 +369,7 @@ async getDatabaseStats(id: string): Promise<DatabaseStats | {}> {    try {
         throw new Error("Database ID is required.");
       }
       const result = await bridgeRequest("db.getSchema", { id });
+      console.log("Fetched schema details:", result);
       return result?.data || null;
     } catch (error: any) {
       console.error("Failed to fetch schema details:", error);

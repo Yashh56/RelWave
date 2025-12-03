@@ -3,7 +3,10 @@ import os from "os";
 import fs from "fs/promises";
 import fsSync from "fs";
 import { v4 as uuidv4 } from "uuid";
-import keytar from "keytar";
+import { createCipheriv, createDecipheriv, randomBytes, scrypt } from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(scrypt);
 
 const CONFIG_FOLDER =
   process.env.DBVISUALIZER_HOME ||
@@ -15,6 +18,10 @@ const CONFIG_FOLDER =
   );
 
 const CONFIG_FILE = path.join(CONFIG_FOLDER, "databases.json");
+const CREDENTIALS_FILE = path.join(CONFIG_FOLDER, ".credentials");
+
+// Use machine-specific key for encryption
+const ENCRYPTION_KEY_SOURCE = os.hostname() + os.userInfo().username;
 
 type DBMeta = {
   id: string;
@@ -23,6 +30,7 @@ type DBMeta = {
   port: number;
   user: string;
   database: string;
+  type?: string; // postgres or mysql
   credentialId?: string;
   notes?: string;
   tags?: string[];
@@ -31,6 +39,74 @@ type DBMeta = {
   createdAt: string;
   updatedAt: string;
 };
+
+type CredentialStore = {
+  [key: string]: string;
+};
+
+// Encrypt password
+async function encryptPassword(password: string): Promise<string> {
+  const iv = randomBytes(16);
+  const key = (await scryptAsync(ENCRYPTION_KEY_SOURCE, "salt", 32)) as Buffer;
+  const cipher = createCipheriv("aes-256-cbc", key, iv);
+  
+  const encrypted = Buffer.concat([
+    cipher.update(password, "utf8"),
+    cipher.final(),
+  ]);
+  
+  // Return IV + encrypted data as base64
+  return Buffer.concat([iv, encrypted]).toString("base64");
+}
+
+// Decrypt password
+async function decryptPassword(encryptedData: string): Promise<string> {
+  const buffer = Buffer.from(encryptedData, "base64");
+  const iv = buffer.slice(0, 16);
+  const encrypted = buffer.slice(16);
+  
+  const key = (await scryptAsync(ENCRYPTION_KEY_SOURCE, "salt", 32)) as Buffer;
+  const decipher = createDecipheriv("aes-256-cbc", key, iv);
+  
+  const decrypted = Buffer.concat([
+    decipher.update(encrypted),
+    decipher.final(),
+  ]);
+  
+  return decrypted.toString("utf8");
+}
+
+// Load credentials from file
+async function loadCredentials(): Promise<CredentialStore> {
+  try {
+    if (!fsSync.existsSync(CREDENTIALS_FILE)) {
+      return {};
+    }
+    const data = await fs.readFile(CREDENTIALS_FILE, "utf-8");
+    return JSON.parse(data);
+  } catch (error) {
+    console.error("Failed to load credentials:", error);
+    return {};
+  }
+}
+
+// Save credentials to file
+async function saveCredentials(credentials: CredentialStore): Promise<void> {
+  try {
+    await fs.writeFile(
+      CREDENTIALS_FILE,
+      JSON.stringify(credentials, null, 2),
+      "utf-8"
+    );
+    // Set file permissions to user-only (Unix systems)
+    if (process.platform !== "win32") {
+      await fs.chmod(CREDENTIALS_FILE, 0o600);
+    }
+  } catch (error) {
+    console.error("Failed to save credentials:", error);
+    throw new Error("Failed to store credentials securely");
+  }
+}
 
 async function ensureConfigDir() {
   // Create directory if it doesn't exist
@@ -81,6 +157,7 @@ export async function addDB(payload: {
   port: number;
   user: string;
   database: string;
+  type?: string;
   ssl?: boolean;
   sslmode?: string;
   password?: string;
@@ -98,6 +175,7 @@ export async function addDB(payload: {
     port: payload.port,
     user: payload.user,
     database: payload.database,
+    type: payload.type,
     ssl: payload.ssl,
     sslmode: payload.sslmode,
     credentialId,
@@ -109,9 +187,18 @@ export async function addDB(payload: {
 
   all.databases.push(meta);
   await saveAll(all);
+  
   if (payload.password && credentialId) {
-    await keytar.setPassword("db-visualizer", credentialId, payload.password);
+    try {
+      const credentials = await loadCredentials();
+      credentials[credentialId] = await encryptPassword(payload.password);
+      await saveCredentials(credentials);
+    } catch (error) {
+      console.error("Failed to store password:", error);
+      // Optionally handle error - you might want to throw or handle gracefully
+    }
   }
+  
   return meta;
 }
 
@@ -129,11 +216,21 @@ export async function updateDB(
     ...patch,
     updatedAt: now,
   };
+  
   if (patch.password) {
     const credentialId = updated.credentialId || `db_${id}`;
     updated.credentialId = credentialId;
-    await keytar.setPassword("db-visualizer", credentialId, patch.password);
+    
+    try {
+      const credentials = await loadCredentials();
+      credentials[credentialId] = await encryptPassword(patch.password);
+      await saveCredentials(credentials);
+    } catch (error) {
+      console.error("Failed to update password:", error);
+      throw new Error("Failed to store password securely");
+    }
   }
+  
   all.databases[idx] = updated;
   await saveAll(all);
   return true;
@@ -146,12 +243,31 @@ export async function deleteDB(id: string) {
   const meta = all.databases[idx];
   all.databases.splice(idx, 1);
   await saveAll(all);
-  if (meta.credentialId)
-    await keytar.deletePassword("db-visualizer", meta.credentialId);
+  
+  if (meta.credentialId) {
+    try {
+      const credentials = await loadCredentials();
+      delete credentials[meta.credentialId];
+      await saveCredentials(credentials);
+    } catch (error) {
+      console.error("Failed to delete password:", error);
+      // Continue anyway since the database entry is already removed
+    }
+  }
+  
   return true;
 }
 
-export async function getPasswordFor(meta: DBMeta) {
+export async function getPasswordFor(meta: DBMeta): Promise<string | null> {
   if (!meta.credentialId) return null;
-  return await keytar.getPassword("db-visualizer", meta.credentialId);
+  
+  try {
+    const credentials = await loadCredentials();
+    const encrypted = credentials[meta.credentialId];
+    if (!encrypted) return null;
+    return await decryptPassword(encrypted);
+  } catch (error) {
+    console.error("Failed to retrieve password:", error);
+    return null;
+  }
 }

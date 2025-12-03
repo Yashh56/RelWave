@@ -19,6 +19,8 @@ import { toPng, toSvg } from 'html-to-image';
 import { bridgeApi, DatabaseSchemaDetails, TableSchemaDetails, ColumnDetails } from "@/services/bridgeApi";
 import Loader from "@/components/Loader";
 
+// --- TYPE DEFINITIONS ---
+
 interface Column extends ColumnDetails {
   fkRef?: string; // e.g., "roles.id"
 }
@@ -35,6 +37,8 @@ type BackendColumn = Omit<ColumnDetails, 'type'> & { type: string, foreignKeyRef
 type BackendTable = Omit<TableSchemaDetails, 'columns'> & { columns: BackendColumn[] };
 
 
+// --- CUSTOM NODE COMPONENT ---
+
 const TableNode: React.FC<{ data: TableNodeData }> = ({ data }) => {
   return (
     <div
@@ -46,7 +50,12 @@ const TableNode: React.FC<{ data: TableNodeData }> = ({ data }) => {
       </div>
       <div className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900 rounded-b-lg">
         {data.columns.map((col, idx) => (
-          <div key={idx} className="px-4 py-2 text-sm font-mono flex justify-between gap-4">
+          <div
+            key={`${data.label}-${col.name}`}
+            // Use the column name as the source handle ID
+            id={`${data.label}-${col.name}`}
+            className="px-4 py-2 text-sm font-mono flex justify-between gap-4"
+          >
             <span
               className={col.isPrimaryKey
                 ? "text-blue-700 dark:text-blue-400 font-semibold"
@@ -72,6 +81,7 @@ const nodeTypes = {
 } as const;
 
 
+// --- SCHEMA TRANSFORMATION LOGIC ---
 
 interface TransformedERData {
   nodes: Node<TableNodeData>[];
@@ -83,22 +93,18 @@ const transformSchemaToER = (schema: DatabaseSchemaDetails): TransformedERData =
   const edges: Edge<any>[] = [];
   let nodeIndex = 0;
   const NODE_WIDTH = 250;
-  const NODE_HEIGHT = 50; // Base height, dynamic adjustment ignored for simplicity
   const X_GAP = 400;
   const Y_GAP = 300;
   const MAX_COLS = 3;
 
-  // Use a map to quickly locate the target table for FKs
-  const tableCoordinates = new Map<string, { x: number, y: number }>();
-
+  // First pass: Create all nodes and map their IDs
   schema.schemas.forEach(schemaGroup => {
     schemaGroup.tables.forEach(table => {
+      // Use the fully qualified name as the unique ID for ReactFlow nodes
       const tableName = `${schemaGroup.name}.${table.name}`;
+
       const x = (nodeIndex % MAX_COLS) * X_GAP;
       const y = Math.floor(nodeIndex / MAX_COLS) * Y_GAP;
-
-      // Store location for edge calculation
-      tableCoordinates.set(tableName, { x, y });
 
       nodes.push({
         id: tableName,
@@ -107,40 +113,79 @@ const transformSchemaToER = (schema: DatabaseSchemaDetails): TransformedERData =
         data: { label: table.name, columns: table.columns as Column[] },
       });
       nodeIndex++;
+    });
+  });
 
-      // Edge creation
+  // Second pass: Create all edges
+  schema.schemas.forEach(schemaGroup => {
+    schemaGroup.tables.forEach(table => {
+      const sourceNodeId = `${schemaGroup.name}.${table.name}`;
+
       table.columns.forEach(col => {
         const column = col as BackendColumn;
-        // Assuming the foreignKeyRef is formatted like "target_schema.target_table"
+
         if (column.isForeignKey && column.foreignKeyRef) {
-          const [targetTable, targetColumn] = column.foreignKeyRef.split(".");
-          const targetId = targetTable; // Use table name as ID for simple FKs
 
-          // Fallback to targetTable if the ref doesn't contain schema (e.g., from mock data)
-          const targetQualifiedName = column.foreignKeyRef.includes('.') ? column.foreignKeyRef.split('.').slice(0, 2).join('.') : `${schemaGroup.name}.${targetTable}`;
+          // foreignKeyRef can be "targetTable.targetColumn" or "targetTable" or "schema.targetTable.targetColumn"
+          // We assume for simple cases it's just "targetTable.targetColumn" and in the same schema.
 
-          // Add edge only if the target node exists (prevent orphaned edges)
-          // In a simple app, we can just use the target table name as the ID, regardless of schema
-          const targetNodeId = targetTable;
+          const parts = column.foreignKeyRef.split(".");
+          let targetSchemaName: string;
+          let targetTableName: string;
+          let targetColumnName: string | undefined;
 
-          edges.push({
-            id: `${tableName}-${targetNodeId}-${col.name}`,
-            source: tableName,
-            target: targetQualifiedName, // Use qualified name
-            sourceHandle: col.name, // Can use column name as handle ID
-            targetHandle: targetColumn, // Target column as handle ID
-            animated: false,
-            style: { stroke: "#3b82f6", strokeWidth: 2 },
-            markerEnd: {
-              type: MarkerType.ArrowClosed,
-              color: "#3b82f6",
-              width: 15,
-              height: 15,
-            },
-            label: col.name,
-            labelStyle: { fontSize: 10, fontWeight: 500, fill: '#6b7280', backgroundColor: 'rgba(255,255,255,0.7)' },
-            type: 'smoothstep', // Use smoothstep for better pathing
-          });
+          if (parts.length === 3) {
+            // Format: schema.table.column
+            [targetSchemaName, targetTableName, targetColumnName] = parts;
+          } else if (parts.length === 2) {
+            // Format: table.column (assumed to be in the current schema)
+            targetSchemaName = schemaGroup.name;
+            [targetTableName, targetColumnName] = parts;
+          } else if (parts.length === 1) {
+            // Format: table (assumed to be in the current schema, referencing its PK)
+            targetSchemaName = schemaGroup.name;
+            targetTableName = parts[0];
+            targetColumnName = undefined; // Will rely on ReactFlow to find PK handle if targetHandle is omitted
+          } else {
+            return; // Skip if ref is invalid
+          }
+
+          // Crucial: The target ID must match a node ID exactly
+          const targetNodeId = `${targetSchemaName}.${targetTableName}`;
+
+          // Check if the target node exists to prevent orphaned edges
+          if (nodes.some(n => n.id === targetNodeId)) {
+
+            // To ensure the edge connects to the specific column on the node, 
+            // the source and target handles must match the IDs of the column elements.
+            // In TableNode, the column element ID is set as: `${data.label}-${col.name}` 
+            // e.g., 'Employees-EmployeeID'
+            const sourceHandleId = `${table.name}-${column.name}`;
+
+            // The target handle should be the target table name and the column it references.
+            // If targetColumnName is undefined, ReactFlow will connect to the center of the node.
+            const targetHandleId = targetColumnName ? `${targetTableName}-${targetColumnName}` : undefined;
+
+
+            edges.push({
+              id: `${sourceNodeId}-${targetNodeId}-${col.name}`,
+              source: sourceNodeId,
+              target: targetNodeId,
+              sourceHandle: sourceHandleId,
+              targetHandle: targetHandleId,
+              animated: false,
+              style: { stroke: "#3b82f6", strokeWidth: 2 },
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: "#3b82f6",
+                width: 15,
+                height: 15,
+              },
+              label: col.name,
+              labelStyle: { fontSize: 10, fontWeight: 500, fill: '#6b7280', backgroundColor: 'rgba(255,255,255,0.7)' },
+              type: 'smoothstep',
+            });
+          }
         }
       });
     });
@@ -150,6 +195,7 @@ const transformSchemaToER = (schema: DatabaseSchemaDetails): TransformedERData =
 };
 
 
+// --- MAIN COMPONENT CONTENT ---
 
 const ERDiagramContent: React.FC = () => {
   const { id: dbId } = useParams<{ id: string }>();
@@ -179,16 +225,22 @@ const ERDiagramContent: React.FC = () => {
 
       try {
         const result = await bridgeApi.getSchema(dbId);
+        console.log(result)
 
         if (result) {
-          setSchemaData(result);
-          const { nodes: newNodes, edges: newEdges } = transformSchemaToER(result);
+          // Check for schemas and tables before proceeding
+          if (result.schemas && result.schemas.some(s => s.tables && s.tables.length > 0)) {
+            setSchemaData(result);
+            const { nodes: newNodes, edges: newEdges } = transformSchemaToER(result);
 
-          setNodes(newNodes);
-          setEdges(newEdges);
+            setNodes(newNodes);
+            setEdges(newEdges);
 
-          // Set a timeout to ensure ReactFlow renders before calling fitView
-          setTimeout(fitView, 50);
+            // Rely on ReactFlow's internal fitView on the component mount/update
+            // fitView(); // Optionally call here, but avoid setTimeout which causes issues
+          } else {
+            setError("Schema data found, but no tables to render.");
+          }
         } else {
           setError(`No schema data found for database ID: ${dbId}`);
         }
@@ -202,14 +254,12 @@ const ERDiagramContent: React.FC = () => {
     };
 
     fetchSchemaAndSetupDiagram();
-  }, [dbId, setNodes, setEdges, fitView]);
+  }, [dbId, setNodes, setEdges]); // Removed fitView dependency as it's not being called manually here
 
 
-
-  // Inside ERDiagramContent component
+  // --- Export Logic ---
 
   const handleExport = useCallback(async (format: ExportFormat): Promise<void> => {
-    // 1. Target the specific element containing the flow
     const flowContainer = document.querySelector('.react-flow__renderer');
 
     if (!flowContainer) {
@@ -221,23 +271,20 @@ const ERDiagramContent: React.FC = () => {
       let dataUrl: string;
       const filename = `er-diagram-${schemaData?.name || 'export'}-${Date.now()}`;
 
-      // Define common export options (especially important for dark backgrounds)
+      // Ensure background is transparent or white for export clarity, overriding dark mode
       const options = {
         quality: 0.95,
-        backgroundColor: '#111827', // Ensure dark background is captured correctly
+        backgroundColor: '#ffffff', // Use a white background for better visibility in exports
       };
 
       if (format === "png") {
-        // Use toPng on the flow renderer element
         dataUrl = await toPng(flowContainer as HTMLElement, options);
       } else if (format === "svg") {
-        // Use toSvg on the flow renderer element
         dataUrl = await toSvg(flowContainer as HTMLElement, options);
       } else {
         return;
       }
 
-      // 2. Trigger the download
       const link = document.createElement("a");
       link.download = `${filename}.${format}`;
       link.href = dataUrl;
@@ -250,10 +297,10 @@ const ERDiagramContent: React.FC = () => {
       toast.error("Export Failed", { description: "Error capturing image data." });
     }
 
-  }, [schemaData]); // Re-run if schemaData changes
+  }, [schemaData]);
 
 
-
+  // --- Render Conditional States ---
 
   if (loading) {
     return (
@@ -282,9 +329,9 @@ const ERDiagramContent: React.FC = () => {
     );
   }
 
+  // --- Main Diagram Render ---
 
   return (
-    // Main Container: Light: bg-gray-50, Dark: bg-gray-950
     <div className="h-screen bg-gray-50 dark:bg-gray-950 flex flex-col">
 
       {/* Header */}
@@ -333,7 +380,7 @@ const ERDiagramContent: React.FC = () => {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
-          fitView
+          fitView // Ensures diagram fits on load
           minZoom={0.1}
           maxZoom={4}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
@@ -347,7 +394,7 @@ const ERDiagramContent: React.FC = () => {
           />
           <Controls
             className="dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-            showFitView={false}
+            showFitView={true} // Keep showFitView true to allow manual fitting
           />
         </ReactFlow>
       </div>

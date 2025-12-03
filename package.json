@@ -8,7 +8,19 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri ",
-    "beforeDevCommand": "npm --prefix bridge run dev"
+    "beforeDevCommand": "npm --prefix bridge run dev",
+    "package-bridge": "cd bridge && pnpm build && cd .. && pkg ./bridge/dist/index.cjs --target node16-win-x64 --output ./src-tauri/resources/bridge-x86_64-pc-windows-msvc.exe"
+  },
+  "pkg": {
+    "scripts": [],
+    "assets": [
+      "./bridge/dist/**/*",
+      "node_modules/pg/**/*",
+      "bridge/node_modules/pg/**/*"
+    ],
+    "targets": [
+      "node18-win-x64"
+    ]
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",

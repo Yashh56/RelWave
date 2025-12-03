@@ -106,7 +106,7 @@ export function stopBridgeListeners(): void {
 export async function bridgeRequest(
   method: string,
   params?: any,
-  timeoutMs = 30000
+  timeoutMs = 300000000
 ): Promise<any> {
   if (!hasTauriInvoke()) {
     return Promise.reject(

@@ -5,23 +5,41 @@
   "main": "dist/index.cjs",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.cjs --format=cjs --packages=external",
     "start": "node dist/index.cjs",
     "test:client": "node test/client.js",
     "test:stream": "node test/stream_test_client.js",
-    "test:cancel": "node test/cancel_test_client.js"
+    "test:cancel": "node test/cancel_test_client.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.cjs --format=cjs --packages=external",
+    "build:pkg": "pkg . --out-path exece",
+    "postpkg": "node scripts/copy-native.js"
   },
   "dependencies": {
-    "keytar": "^7.9.0",
+    "@napi-rs/keyring": "^1.2.0",
+    "bcryptjs": "^3.0.3",
+    "mysql2": "^3.15.3",
     "pg": "^8.16.3",
     "pg-query-stream": "^4.10.3",
     "pino": "^9.14.0",
     "uuid": "^8.3.2"
   },
+  "bin": "./dist/index.cjs",
+  "pkg": {
+    "outputPath": "exece",
+    "targets": [
+      "node18-win-x64",
+      "node18-linux-x64"
+    ],
+    "assets": [
+      "node_modules/**/build/Release/*.node",
+      "node_modules/**/prebuilds/**/*",
+      "node_modules/@nut-tree/libnut-win32/build/Release/*"
+    ]
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/pg": "^8.15.6",
     "esbuild": "^0.27.0",
+    "pkg": "^5.8.1",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.0.0"
   }

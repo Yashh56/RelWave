@@ -327,11 +327,11 @@ const Index = () => {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-gradient-to-br from-cyan-500 to-violet-600 rounded-xl shadow-lg">
+              <div className="p-3 bg-linear-to-br from-cyan-500 to-violet-600 rounded-xl shadow-lg">
                 <Server className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-fuchsia-600">
+                <h1 className="text-3xl font-extrabold bg-clip-text text-transparent bg-linear-to-r from-cyan-400 to-fuchsia-600">
                   Data Portal
                 </h1>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Manage and visualize your connections</p>
@@ -466,7 +466,7 @@ const Index = () => {
                     </Button>
                     <Button
                       onClick={handleAddDatabase}
-                      className="bg-gradient-to-r from-cyan-500 to-fuchsia-600 hover:from-cyan-600 hover:to-fuchsia-700 transition-all shadow-md shadow-fuchsia-500/30"
+                      className="bg-linear-to-r from-cyan-500 to-fuchsia-600 hover:from-cyan-600 hover:to-fuchsia-700 transition-all shadow-md shadow-fuchsia-500/30"
                     >
                       Connect
                     </Button>
@@ -478,7 +478,7 @@ const Index = () => {
         </div>
       </header>
 
-      <main className="flex-grow overflow-y-auto">
+      <main className="grow overflow-y-auto">
         <div className="container mx-auto px-4 py-8">
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
             <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-primary/10 rounded-xl p-6 shadow-md dark:shadow-2xl hover:border-cyan-500/50 transition-all duration-300">
@@ -549,7 +549,6 @@ const Index = () => {
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6">
                 {filteredDatabases.map((db) => {
-                  const stats = databaseStats[db.id];
                   return (
                     <DatabaseCard
                       key={db.id}
@@ -557,8 +556,6 @@ const Index = () => {
                       name={db.name}
                       type={db.type}
                       status="connected"
-                      tables={stats ? parseInt(stats.total_tables) : 0}
-                      size={stats ? `${parseFloat(stats.total_db_size_mb).toFixed(2)} MB` : '0 MB'}
                       host={`${db.host}:${db.port}`}
                       onDelete={() => handleDeleteDatabase(db.id, db.name)}
                       onTest={() => handleTestConnection(db.id, db.name)}

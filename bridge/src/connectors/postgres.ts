@@ -102,21 +102,22 @@ export async function fetchTableData(
 /**
  * listTables: Retrieves all user-defined tables and views.
  */
+
 export async function listTables(connection: PGConfig, schemaName?: string) {
   const client = createClient(connection);
 
   let query = `
-      SELECT table_schema AS schema, table_name AS name, table_type AS type
-      FROM information_schema.tables
-      WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
-    `;
+    SELECT table_schema AS schema, table_name AS name, table_type AS type
+    FROM information_schema.tables
+    WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+      AND table_type = 'BASE TABLE'
+  `;
   let queryParams: string[] = [];
 
   // Add schema filter if provided
   if (schemaName) {
-    // Ensure schema name is treated as lowercase to match PostgreSQL default behavior
     query += ` AND table_schema = $1`;
-    queryParams.push(schemaName.toLowerCase());
+    queryParams.push(schemaName);
   }
 
   query += ` ORDER BY table_schema, table_name;`;

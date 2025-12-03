@@ -20,18 +20,41 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { bridgeApi } from "@/services/bridgeApi";
 
 interface DatabaseCardProps {
   id: string;
   name: string;
   type: string;
   status: "connected" | "disconnected";
-  tables: number;
-  size: string;
   host: string;
   onDelete?: () => void;
   onTest?: () => void;
+}
+
+// Type for database stats
+interface DatabaseStats {
+  stats: {
+    total_tables: string;
+    total_db_size: string;
+    total_db_size_mb: string;
+  },
+  db: {
+    id: string;
+    name: string;
+    port: number;
+    host: string;
+    type: string;
+    ssl?: boolean;
+    created_at: string;
+    updated_at: string;
+    user: string;
+    sslmode?: string;
+    database: string;
+    tags?: string[];
+    credentialId?: string;
+  }
 }
 
 export const DatabaseCard = ({
@@ -39,13 +62,12 @@ export const DatabaseCard = ({
   name,
   type,
   status,
-  tables,
-  size,
   host,
   onDelete,
   onTest
 }: DatabaseCardProps) => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [result, setResult] = useState<DatabaseStats | null>([] as unknown as DatabaseStats);
 
   // Dynamic colors based on status
   const isConnected = status === "connected";
@@ -74,22 +96,35 @@ export const DatabaseCard = ({
     onDelete?.();
   };
 
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const res = await bridgeApi.getDatabaseStats(id);
+        console.log(res)
+        // Ensure the response matches the expected shape before setting state
+        if (res && typeof res === "object" && "stats" in res && "db" in res) {
+          setResult(res as DatabaseStats);
+        } else {
+          console.warn("Unexpected database stats response:", res);
+          setResult(null);
+        }
+      } catch (error) {
+        console.log(error)
+      }
+    }
+    loadStats();
+  }, [id])
+
   return (
     <>
-      <Card
-        // Main Card: Light: bg-white border-gray-300, Dark: bg-gray-900/70 border-primary/20
-        // Hover: Light: hover:bg-gray-50, Dark: hover:bg-gray-800/80
-        className={`bg-white dark:bg-gray-900/70 border border-gray-300 dark:border-primary/20 rounded-xl shadow-md dark:shadow-2xl 
-                   transition-all duration-300 cursor-pointer h-full 
-                   group ${hoverGlow} hover:bg-gray-50 dark:hover:bg-gray-800/80 relative`}
-      >
+      <Card className={`bg-white dark:bg-gray-900/70 border border-gray-300 dark:border-primary/20 rounded-xl shadow-md dark:shadow-2xl transition-all duration-300 cursor-pointer h-full group ${hoverGlow} hover:bg-gray-50 dark:hover:bg-gray-800/80 relative`}>
         <CardHeader className="p-4 sm:p-6">
           <div className="flex items-start justify-between">
             {/* Database Info - Clickable Link */}
             <Link to={`/${id}`} className="flex items-center gap-3 min-w-0 flex-1 pr-1">
               <div
                 // Icon BG: Light: bg-cyan/red-600/10, Dark: bg-cyan/red-600/30
-                className={`p-3 rounded-xl transition-colors flex-shrink-0 
+                className={`p-3 rounded-xl transition-colors shrink-0 
                   ${isConnected ? "bg-cyan-600/10 dark:bg-cyan-600/30" : "bg-red-600/10 dark:bg-red-600/30"}`}
               >
                 <Database className={`h-6 w-6 ${iconColor}`} />
@@ -114,7 +149,7 @@ export const DatabaseCard = ({
             </Link>
 
             {/* Actions Menu and Badge - fixed size, flex-shrink-0 */}
-            <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+            <div className="flex items-center gap-1 shrink-0 ml-1">
               <Badge
                 variant="outline"
                 className={`hidden sm:flex items-center gap-1 font-semibold uppercase px-3 py-1 ${statusColorClass}`}
@@ -184,23 +219,23 @@ export const DatabaseCard = ({
 
               {/* Tables Count */}
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400 flex items-center gap-2 flex-shrink-0">
+                <span className="text-gray-600 dark:text-gray-400 flex items-center gap-2 shrink-0">
                   <Table2 className="h-4 w-4 text-violet-600 dark:text-violet-400" />
                   Total Tables
                 </span>
                 <span className="font-mono font-medium text-lg text-black dark:text-white">
-                  <span className="text-right inline-block">{tables}</span>
+                  <span className="text-right inline-block">{id === result?.db?.id ? parseInt(result.stats.total_tables) : 0}</span>
                 </span>
               </div>
 
               {/* Size */}
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400 flex items-center gap-2 flex-shrink-0">
+                <span className="text-gray-600 dark:text-gray-400 flex items-center gap-2 shrink-0">
                   <HardDrive className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                   Storage Used
                 </span>
                 <span className="font-mono font-medium text-lg text-black dark:text-white">
-                  <span className="text-right inline-block">{size}</span>
+                  <span className="text-right inline-block">{id === result?.db?.id ? parseFloat(result.stats.total_db_size_mb).toFixed(2) : "0.00"} MB</span>
                 </span>
               </div>
 

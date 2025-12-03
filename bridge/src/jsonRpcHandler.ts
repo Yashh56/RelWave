@@ -5,25 +5,18 @@
 /*
   Usage:
     import * as dbStore from './services/dbStore';
-    import connectors from './connectors'; // your existing connectors object
     import { registerDbHandlers } from './jsonRpcHandlers';
 
-    registerDbHandlers(rpc, dbStore, connectors, logger);
+    registerDbHandlers(rpc, logger, sessions);
 
   The `rpc` object must implement:
     - sendResponse(id, payload)
     - sendError(id, { code, message })
+    - sendNotification(method, params)
 */
 
-import {
-  listTables,
-  testConnection,
-  fetchTableData,
-  streamQueryCancelable,
-  getDBStats,
-  getTableDetails,
-  listSchemas,
-} from "./connectors/postgres";
+import * as postgresConnector from "./connectors/postgres";
+import * as mysqlConnector from "./connectors/mysql";
 import * as dbStore from "./services/dbStore";
 import { SessionManager } from "./sessionManager";
 import { randomUUID } from "node:crypto";
@@ -37,7 +30,13 @@ type Rpc = {
   sendNotification?: (method: string, params?: any) => void;
 };
 
-// utility: helper to send a query error notification
+// Database type enum
+enum DBType {
+  POSTGRES = "postgres",
+  MYSQL = "mysql",
+}
+
+// Utility: helper to send a query error notification
 function notifyQueryError(rpc: Rpc, sessionId: string, err: any) {
   try {
     if (rpc.sendNotification) {
@@ -51,11 +50,48 @@ function notifyQueryError(rpc: Rpc, sessionId: string, err: any) {
   }
 }
 
-// 1. UPDATED: Added SessionManager to the function signature
+// Utility: Determine database type from DB metadata
+function getDBType(db: any): DBType {
+  // Check if there's an explicit type field
+  if (db.type) {
+    const normalizedType = db.type.toLowerCase();
+    if (normalizedType.includes("mysql")) return DBType.MYSQL;
+    if (normalizedType.includes("postgres") || normalizedType.includes("pg"))
+      return DBType.POSTGRES;
+  }
+
+  // Default to postgres for backwards compatibility
+  return DBType.POSTGRES;
+}
+
+// Utility: Build connection config for PostgreSQL
+function buildPostgresConnection(db: any, pwd: string | null) {
+  return {
+    host: db.host,
+    port: db.port,
+    user: db.user,
+    password: pwd ?? undefined,
+    ssl: db.ssl,
+    database: db.database,
+  };
+}
+
+// Utility: Build connection config for MySQL
+function buildMySQLConnection(db: any, pwd: string | null) {
+  return {
+    host: db.host,
+    port: db.port || 3306,
+    user: db.user,
+    password: pwd ?? undefined,
+    ssl: db.ssl,
+    database: db.database,
+  };
+}
+
 export function registerDbHandlers(
   rpc: Rpc,
   logger: any,
-  sessions: SessionManager // <-- NEW PARAMETER
+  sessions: SessionManager
 ) {
   // --- SESSION MANAGEMENT HANDLERS (query.*) ---
 
@@ -94,7 +130,7 @@ export function registerDbHandlers(
 
   // --- QUERY HANDLERS (query.*) ---
 
-  // query.run - NEW HANDLER for custom SQL execution
+  // query.run - Custom SQL execution with database-specific handling
   rpcRegister("query.run", async (params: any, id: number | string) => {
     const { sessionId, dbId, sql, batchSize = 200 } = params || {};
 
@@ -111,14 +147,7 @@ export function registerDbHandlers(
     }
 
     const pwd = await dbStore.getPasswordFor(db);
-    const conn = {
-      host: db.host,
-      port: db.port,
-      user: db.user,
-      password: pwd ?? undefined,
-      ssl: db.ssl,
-      database: db.database,
-    };
+    const dbType = getDBType(db);
 
     let cancelled = false;
     const cancelState: { fn: (() => Promise<void>) | null } = { fn: null };
@@ -126,7 +155,7 @@ export function registerDbHandlers(
     // Notify the client that the query is starting
     rpc.sendNotification?.("query.started", {
       sessionId,
-      info: { sqlPreview: (sql || "").slice(0, 200), dbId },
+      info: { sqlPreview: (sql || "").slice(0, 200), dbId, dbType },
     });
 
     // State for progress tracking
@@ -136,45 +165,91 @@ export function registerDbHandlers(
     let lastProgressEmit = Date.now();
 
     try {
-      // Create cancellable runner from postgres.ts
-      const runner = streamQueryCancelable(
-        conn,
-        sql,
-        batchSize,
-        async (rows, columns) => {
-          if (cancelled) throw new Error("query cancelled");
-          totalRows += rows.length;
+      let runner: { promise: Promise<void>; cancel: () => Promise<void> };
 
-          // Send batch results to the client
-          rpc.sendNotification?.("query.result", {
-            sessionId,
-            batchIndex: batchIndex++,
-            rows,
-            columns,
-            complete: false,
-          });
+      // Select the appropriate connector based on database type
+      if (dbType === DBType.MYSQL) {
+        const conn = buildMySQLConnection(db, pwd);
+        runner = mysqlConnector.streamQueryCancelable(
+          conn,
+          sql,
+          batchSize,
+          async (rows, columns) => {
+            if (cancelled) throw new Error("query cancelled");
+            totalRows += rows.length;
 
-          // Emit progress every 500ms
-          const now = Date.now();
-          if (now - lastProgressEmit >= 500) {
-            lastProgressEmit = now;
-            rpc.sendNotification?.("query.progress", {
+            // Send batch results to the client
+            rpc.sendNotification?.("query.result", {
               sessionId,
-              rowsSoFar: totalRows,
-              elapsedMs: now - start,
+              batchIndex: batchIndex++,
+              rows,
+              columns,
+              complete: false,
+            });
+
+            // Emit progress every 500ms
+            const now = Date.now();
+            if (now - lastProgressEmit >= 500) {
+              lastProgressEmit = now;
+              rpc.sendNotification?.("query.progress", {
+                sessionId,
+                rowsSoFar: totalRows,
+                elapsedMs: now - start,
+              });
+            }
+          },
+          () => {
+            // onDone callback
+            rpc.sendNotification?.("query.done", {
+              sessionId,
+              rows: totalRows,
+              timeMs: Date.now() - start,
+              status: "success",
             });
           }
-        },
-        () => {
-          // onDone callback
-          rpc.sendNotification?.("query.done", {
-            sessionId,
-            rows: totalRows,
-            timeMs: Date.now() - start,
-            status: "success",
-          });
-        }
-      );
+        );
+      } else {
+        // PostgreSQL
+        const conn = buildPostgresConnection(db, pwd);
+        runner = postgresConnector.streamQueryCancelable(
+          conn,
+          sql,
+          batchSize,
+          async (rows, columns) => {
+            if (cancelled) throw new Error("query cancelled");
+            totalRows += rows.length;
+
+            // Send batch results to the client
+            rpc.sendNotification?.("query.result", {
+              sessionId,
+              batchIndex: batchIndex++,
+              rows,
+              columns,
+              complete: false,
+            });
+
+            // Emit progress every 500ms
+            const now = Date.now();
+            if (now - lastProgressEmit >= 500) {
+              lastProgressEmit = now;
+              rpc.sendNotification?.("query.progress", {
+                sessionId,
+                rowsSoFar: totalRows,
+                elapsedMs: now - start,
+              });
+            }
+          },
+          () => {
+            // onDone callback
+            rpc.sendNotification?.("query.done", {
+              sessionId,
+              rows: totalRows,
+              timeMs: Date.now() - start,
+              status: "success",
+            });
+          }
+        );
+      }
 
       // Set cancel function synchronously to avoid race conditions
       cancelState.fn = async () => {
@@ -233,7 +308,7 @@ export function registerDbHandlers(
     }
   });
 
-  // query.fetchTableData - NEW HANDLER
+  // query.fetchTableData - Fetch table data with database-specific handling
   rpcRegister(
     "query.fetchTableData",
     async (params: any, id: number | string) => {
@@ -253,17 +328,26 @@ export function registerDbHandlers(
           });
 
         const pwd = await dbStore.getPasswordFor(db);
-        const conn = {
-          host: db.host,
-          port: db.port,
-          user: db.user,
-          password: pwd ?? undefined,
-          ssl: db.ssl,
-          database: db.database,
-        };
+        const dbType = getDBType(db);
 
-        // Call the new connector function
-        const data = await fetchTableData(conn, schemaName, tableName);
+        let data: any;
+
+        if (dbType === DBType.MYSQL) {
+          const conn = buildMySQLConnection(db, pwd);
+          data = await mysqlConnector.fetchTableData(
+            conn,
+            schemaName,
+            tableName
+          );
+        } else {
+          // PostgreSQL
+          const conn = buildPostgresConnection(db, pwd);
+          data = await postgresConnector.fetchTableData(
+            conn,
+            schemaName,
+            tableName
+          );
+        }
 
         rpc.sendResponse(id, { ok: true, data: data });
       } catch (e: any) {
@@ -314,7 +398,7 @@ export function registerDbHandlers(
   rpcRegister("db.add", async (params: any, id: number | string) => {
     try {
       const payload = params || {};
-      const required = ["name", "host", "port", "user", "database"];
+      const required = ["name", "host", "port", "user", "database", "type"];
       for (const r of required)
         if (!payload[r])
           return rpc.sendError(id, {
@@ -363,11 +447,13 @@ export function registerDbHandlers(
     }
   });
 
-  // db.connectTest
+  // db.connectTest - Test connection with database-specific handling
   rpcRegister("db.connectTest", async (params: any, id: number | string) => {
     try {
       const { id: dbId, connection } = params || {};
       let conn: any = null;
+      let dbType = DBType.POSTGRES; // default
+
       if (dbId) {
         const db = await dbStore.getDB(dbId);
         if (!db)
@@ -376,15 +462,21 @@ export function registerDbHandlers(
             message: "DB not found",
           });
         const pwd = await dbStore.getPasswordFor(db);
-        conn = {
-          host: db.host,
-          port: db.port,
-          user: db.user,
-          password: pwd,
-          database: db.database,
-        };
+        dbType = getDBType(db);
+
+        if (dbType === DBType.MYSQL) {
+          conn = buildMySQLConnection(db, pwd);
+        } else {
+          conn = buildPostgresConnection(db, pwd);
+        }
       } else if (connection) {
         conn = connection;
+        // Try to detect from connection object
+        if (connection.type) {
+          dbType = connection.type.toLowerCase().includes("mysql")
+            ? DBType.MYSQL
+            : DBType.POSTGRES;
+        }
       } else {
         return rpc.sendError(id, {
           code: "BAD_REQUEST",
@@ -392,10 +484,16 @@ export function registerDbHandlers(
         });
       }
 
-      // call postgres connector test function
+      // Call appropriate connector test function
       try {
-        await testConnection(conn);
-        rpc.sendResponse(id, { ok: true, data: { ok: true } });
+        let result: any;
+        if (dbType === DBType.MYSQL) {
+          result = await mysqlConnector.testConnection(conn);
+        } else {
+          await postgresConnector.testConnection(conn);
+          result = { ok: true };
+        }
+        rpc.sendResponse(id, { ok: true, data: result });
       } catch (err: any) {
         rpc.sendResponse(id, { ok: false, message: String(err) });
       }
@@ -405,7 +503,7 @@ export function registerDbHandlers(
     }
   });
 
-  // db.listTables
+  // db.listTables - List tables with database-specific handling
   rpcRegister("db.listTables", async (params: any, id: number | string) => {
     try {
       const { id: dbId } = params || {};
@@ -420,16 +518,20 @@ export function registerDbHandlers(
           code: "NOT_FOUND",
           message: "DB not found",
         });
+
       const pwd = await dbStore.getPasswordFor(db);
-      const conn = {
-        host: db.host,
-        port: db.port,
-        user: db.user,
-        password: pwd ?? undefined,
-        ssl: db.ssl,
-        database: db.database,
-      };
-      const tables = await listTables(conn);
+      const dbType = getDBType(db);
+
+      let tables: any;
+
+      if (dbType === DBType.MYSQL) {
+        const conn = buildMySQLConnection(db, pwd);
+        tables = await mysqlConnector.listTables(conn);
+      } else {
+        const conn = buildPostgresConnection(db, pwd);
+        tables = await postgresConnector.listTables(conn);
+      }
+
       rpc.sendResponse(id, { ok: true, data: tables });
     } catch (e: any) {
       logger?.error({ e }, "db.listTables failed");
@@ -437,6 +539,7 @@ export function registerDbHandlers(
     }
   });
 
+  // db.getStats
   rpcRegister("db.getStats", async (params: any, id: number | string) => {
     try {
       const { id: dbId } = params || {};
@@ -451,23 +554,40 @@ export function registerDbHandlers(
           code: "NOT_FOUND",
           message: "DB not found",
         });
+
       const pwd = await dbStore.getPasswordFor(db);
-      const conn = {
-        host: db.host,
-        port: db.port,
-        user: db.user,
-        password: pwd ?? undefined,
-        ssl: db.ssl,
-        database: db.database,
-      };
-      const stats = await getDBStats(conn);
-      rpc.sendResponse(id, { ok: true, data: stats });
+      const dbType = getDBType(db);
+
+      // Only PostgreSQL supports getDBStats currently
+      if (dbType === DBType.MYSQL) {
+        // Return basic stats for MySQL or implement MySQL-specific stats
+        const conn = buildMySQLConnection(db, pwd);
+        const stats = await mysqlConnector.getDBStats(conn);
+        return rpc.sendResponse(id, {
+          ok: true,
+          data: {
+            stats: stats,
+            db: db,
+          },
+        });
+      } else {
+        const conn = buildPostgresConnection(db, pwd);
+        const stats = await postgresConnector.getDBStats(conn);
+        return rpc.sendResponse(id, {
+          ok: true,
+          data: {
+            stats: stats,
+            db: db,
+          },
+        });
+      }
     } catch (error) {
       logger?.error({ error }, "db.getStats failed");
       rpc.sendError(id, { code: "IO_ERROR", message: String(error) });
     }
   });
 
+  // db.getSchema
   rpcRegister("db.getSchema", async (params: any, id: number | string) => {
     try {
       const { id: dbId } = params || {};
@@ -486,72 +606,122 @@ export function registerDbHandlers(
         });
       }
 
-      // 1. Build Connection Config
       const pwd = await dbStore.getPasswordFor(dbMeta);
-      const conn = {
-        host: dbMeta.host,
-        port: dbMeta.port,
-        user: dbMeta.user,
-        password: pwd ?? undefined,
-        database: dbMeta.database,
-        ssl: dbMeta.ssl,
-      };
+      const dbType = getDBType(dbMeta);
 
-      // 2. Fetch Schemas
-      const schemas = await listSchemas(conn);
+      // Only PostgreSQL supports full schema retrieval currently
+      if (dbType === DBType.MYSQL) {
+        // Basic MySQL schema support
+        const conn = buildMySQLConnection(dbMeta, pwd);
+        const schemas = await mysqlConnector.listSchemas(conn);
 
-      const finalSchemas = [];
-
-      // 3. Loop through schemas to fetch tables and details
-      for (const schema of schemas) {
-        // Get all tables/views in this schema (you'll need to modify your listTables to accept schemaName)
-        const tablesInSchema = await listTables(conn, schema.name);
-
-        const finalTables = [];
-
-        // 4. Loop through tables to fetch columns and constraints
-        for (const table of tablesInSchema) {
-          const tableDetails = await getTableDetails(
+        const finalSchemas = [];
+        for (const schema of schemas) {
+          const tablesInSchema = await mysqlConnector.listTables(
             conn,
-            table.schema,
-            table.name
+            schema.name
           );
-
-          const columns = tableDetails.map((col) => ({
-            name: col.name,
-            type: col.type,
-            nullable: !col.not_nullable,
-            isPrimaryKey: col.is_primary_key === true,
-            isForeignKey: col.is_foreign_key === true,
-            defaultValue: col.default_value || null,
-            isUnique: false, // Additional lookup needed for unique/indexes
-          }));
-
-          finalTables.push({
-            name: table.name,
-            type: table.type,
-            columns: columns,
+          const finalTables = [];
+          for (const table of tablesInSchema) {
+            const tableDetails = await mysqlConnector.getTableDetails(
+              conn,
+              table.schema,
+              table.name
+            );
+            const columns = tableDetails.map((col) => ({
+              name: col.name,
+              type: col.type,
+              nullable: !col.not_nullable,
+              isPrimaryKey: col.is_primary_key === true,
+              isForeignKey: col.is_foreign_key === true,
+              defaultValue: col.default_value || null,
+              isUnique: false,
+            }));
+            finalTables.push({
+              name: table.name,
+              type: table.type,
+              columns: columns,
+            });
+          }
+          finalSchemas.push({
+            name: schema.name,
+            tables: finalTables,
           });
         }
+        const responseData = {
+          name: dbMeta.name,
+          schemas: finalSchemas,
+        };
+        return rpc.sendResponse(id, { ok: true, data: responseData });
+      } else {
+        // PostgreSQL full schema
+        const conn = buildPostgresConnection(dbMeta, pwd);
+        const schemas = await postgresConnector.listSchemas(conn);
 
-        finalSchemas.push({
-          name: schema.name,
-          tables: finalTables,
-        });
+        const finalSchemas = [];
+
+        for (const schema of schemas) {
+          try {
+            logger.info(`Processing schema: ${schema.name}`);
+            const tablesInSchema = await postgresConnector.listTables(
+              conn,
+              schema.name
+            );
+            const finalTables = [];
+
+            for (const table of tablesInSchema) {
+              const tableDetails = await postgresConnector.getTableDetails(
+                conn,
+                table.schema,
+                table.name
+              );
+
+              const columns = tableDetails.map((col) => ({
+                name: col.name,
+                type: col.type,
+                nullable: !col.not_nullable,
+                isPrimaryKey: col.is_primary_key === true,
+                isForeignKey: col.is_foreign_key === true,
+                defaultValue: col.default_value || null,
+                isUnique: false,
+              }));
+
+              finalTables.push({
+                name: table.name,
+                type: table.type,
+                columns: columns,
+              });
+            }
+
+            finalSchemas.push({
+              name: schema.name,
+              tables: finalTables,
+            });
+          } catch (error) {
+            rpc.sendError(id, {
+              code: "IO_ERROR",
+              message: `Failed to process schema ${schema.name}: ${String(
+                error
+              )}`,
+            });
+            return;
+          }
+        }
+
+        const responseData = {
+          name: dbMeta.name,
+          schemas: finalSchemas,
+        };
+
+        rpc.sendResponse(id, { ok: true, data: responseData });
       }
-
-      const responseData = {
-        name: dbMeta.name,
-        schemas: finalSchemas,
-      };
-
-      rpc.sendResponse(id, { ok: true, data: responseData });
     } catch (e: any) {
       logger?.error({ e }, "db.getSchema failed");
       rpc.sendError(id, { code: "IO_ERROR", message: String(e) });
     }
   });
-  // helper to register methods into the bridge's rpc dispatcher
+
+  // Helper to register methods into the bridge's rpc dispatcher
   function rpcRegister(
     method: string,
     fn: (params: any, id: number | string) => Promise<void> | void

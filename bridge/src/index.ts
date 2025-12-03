@@ -71,9 +71,14 @@ try {
 }
 
 logger.info("Bridge (JSON-RPC) starting");
-
+logger.info("--- System Info ---");
+logger.info(`Process PID: ${process.pid}`);
+logger.info(`Node.js version: ${process.version}`);
+logger.info(`Uptime at start: ${process.uptime()} sec`);
 // send initial ready notification
 rpc.sendNotification("bridge.ready", { pid: process.pid });
+rpc.sendNotification("bridge.uptime", { uptimeSec: process.uptime() });
+
 
 // handle incoming notifications (one-way)
 rpc.on("notification", (n: any) => {
