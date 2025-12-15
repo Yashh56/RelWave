@@ -4,6 +4,7 @@ import { Button } from "../ui/button"
 import { Play } from "lucide-react"
 import { Badge } from "../ui/badge"
 import { DataTable } from "../DataTable"
+import { TableRow } from "@/services/bridgeApi"
 
 
 interface VisualBuilderProps {
@@ -14,14 +15,17 @@ interface VisualBuilderProps {
     onConnect: any;
     generatedSQL: string;
     executeQuery: () => void;
-    queryResults: any[];
+    queryResults: TableRow[];
     nodeTypes: any;
+    isExecuting?: boolean;
+    rowCount?: number;
+    queryProgress?: number;
 }
 
 
 
 const VisualBuilder = (props: VisualBuilderProps) => {
-    const { nodes, edges, onNodesChange, onEdgesChange, onConnect, generatedSQL, executeQuery, queryResults, nodeTypes } = props;
+    const { nodes, edges, onNodesChange, onEdgesChange, onConnect, generatedSQL, executeQuery, queryResults, nodeTypes, isExecuting, rowCount, queryProgress } = props;
 
     return (
         <div className="lg:col-span-2 space-y-4">
@@ -31,8 +35,21 @@ const VisualBuilder = (props: VisualBuilderProps) => {
                     <p className="text-xs text-muted-foreground">
                         Drag tables to arrange • Connect tables to create joins
                     </p>
+                    {isExecuting && (
+                        <div className="mt-2">
+                            <div className="text-xs text-muted-foreground mb-1">
+                                Executing... {queryProgress}%
+                            </div>
+                            <div className="w-full bg-muted rounded-full h-2">
+                                <div
+                                    className="bg-primary h-2 rounded-full transition-all"
+                                    style={{ width: `${queryProgress || 0}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
                 </CardHeader>
-                <CardContent className="h-[320px] p-0">
+                <CardContent className="h-80 p-0">
                     <ReactFlow
                         nodes={nodes}
                         edges={edges}
@@ -53,7 +70,7 @@ const VisualBuilder = (props: VisualBuilderProps) => {
                     <CardHeader>
                         <div className="flex items-center justify-between">
                             <CardTitle className="text-lg">Generated SQL</CardTitle>
-                            <Button size="sm" onClick={executeQuery}>
+                            <Button size="sm" onClick={executeQuery} disabled={isExecuting}>
                                 <Play className="h-4 w-4 mr-2" />
                                 Execute
                             </Button>

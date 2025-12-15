@@ -3,6 +3,8 @@ import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Input } from '../ui/input';
 import { Plus, Trash2 } from 'lucide-react';
+import { SchemaDetails } from '@/types/Schema';
+
 
 
 interface ControlPanelProps {
@@ -15,12 +17,11 @@ interface ControlPanelProps {
     setSortBy: React.Dispatch<React.SetStateAction<string>>;
     groupBy: string;
     setGroupBy: React.Dispatch<React.SetStateAction<string>>;
-    mockTables: string[];
+    Tables: SchemaDetails;
     addFilter: () => void;
     removeFilter: (index: number) => void;
     generateSQL: () => void;
 }
-
 
 
 const ControlPanel = (props: ControlPanelProps) => {
@@ -34,11 +35,14 @@ const ControlPanel = (props: ControlPanelProps) => {
         setSortBy,
         groupBy,
         setGroupBy,
-        mockTables,
+        Tables,
         generateSQL,
         addFilter,
         removeFilter
     } = props;
+
+
+
 
     return (
         <div className="space-y-4">
@@ -52,11 +56,12 @@ const ControlPanel = (props: ControlPanelProps) => {
                             <SelectValue placeholder="Select table" />
                         </SelectTrigger>
                         <SelectContent>
-                            {mockTables.map((table) => (
-                                <SelectItem key={table} value={table}>
-                                    {table}
+                            {Tables.schemas.flatMap(schema => schema.tables).map((table) => (
+                                <SelectItem key={table.name} value={table.name}>
+                                    {table.name}
                                 </SelectItem>
                             ))}
+
                         </SelectContent>
                     </Select>
                     <Button onClick={addTable} className="w-full gradient-primary">
