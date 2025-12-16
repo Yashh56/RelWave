@@ -1,12 +1,12 @@
 import { FC } from "react";
-import { QueryProgress, SelectedTable } from "@/pages/DatabaseDetails";
-import { TableRow } from "@/services/bridgeApi";
+import { QueryProgress, SelectedTable } from "@/types/database";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Card, CardDescription, CardTitle } from "../ui/card";
 import { Table2, Code, BarChart } from "lucide-react";
 import { ChartVisualization } from "../ChartVisualization";
 import Data from "./Data";
 import Editor from "./Editor";
+import { TableRow } from "@/types/database";
 
 
 interface QueryContentTabsProps {

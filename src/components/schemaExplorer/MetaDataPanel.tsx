@@ -1,8 +1,7 @@
 import { Key, Link2, AlertCircle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { DatabaseSchemaDetails, ColumnDetails, TableSchemaDetails, SchemaGroup } from "@/services/bridgeApi"; // Import API and types
-
+import { ColumnDetails, DatabaseSchemaDetails, SchemaGroup, TableSchemaDetails } from "@/types/database";
 
 interface Column extends ColumnDetails {
     foreignKeyRef?: string; // Add if foreignKeyRef detail is manually available

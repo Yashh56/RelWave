@@ -14,10 +14,11 @@ import ControlPanel from "@/components/queryBuilder/ControlPanel";
 import VisualBuilder from "@/components/queryBuilder/VisualBuilder";
 import TableNode from "@/components/ERDiagram/TableNode";
 import { isBridgeReady } from "@/services/bridgeClient";
-import { bridgeApi, DatabaseSchemaDetails, TableRow } from "@/services/bridgeApi";
+import { bridgeApi } from "@/services/bridgeApi";
 import { useBridgeQuery } from "@/hooks/useBridgeQuery";
 import { Loader2 } from "lucide-react";
-import { SchemaDetails } from "@/types/Schema";
+import { SchemaDetails } from "@/types/schema";
+import { TableRow } from "@/types/database";
 
 const nodeTypes = {
   table: TableNode,

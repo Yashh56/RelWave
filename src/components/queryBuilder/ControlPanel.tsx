@@ -3,7 +3,7 @@ import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Input } from '../ui/input';
 import { Plus, Trash2 } from 'lucide-react';
-import { SchemaDetails } from '@/types/Schema';
+import { SchemaDetails } from '@/types/schema';
 
 
 

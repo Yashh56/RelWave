@@ -1,9 +1,8 @@
-import React from 'react'
 import { ScrollArea } from '../ui/scroll-area';
 import { ChevronDown, ChevronRight, Copy, Database, Download, Eye, FileCode, Key, Layers, Link2, Table } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '../ui/context-menu';
-import { ColumnDetails, DatabaseSchemaDetails, SchemaGroup, TableSchemaDetails } from '@/services/bridgeApi';
 import { Badge } from "@/components/ui/badge";
+import { ColumnDetails, DatabaseSchemaDetails, SchemaGroup, TableSchemaDetails } from '@/types/database';
 
 
 interface Column extends ColumnDetails {

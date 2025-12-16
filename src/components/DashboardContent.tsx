@@ -3,8 +3,8 @@ import { Database, Plus, Search } from 'lucide-react';
 import { Input } from './ui/input';
 import { DatabaseCard } from './DatabaseCard';
 import { Button } from './ui/button';
-import { DatabaseConnection } from '@/services/bridgeApi';
 import { Spinner } from './ui/spinner';
+import { DatabaseConnection } from '@/types/database';
 
 
 interface DashboardContentProps {

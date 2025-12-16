@@ -1,4 +1,4 @@
-import { bridgeApi, ColumnDetails, DatabaseSchemaDetails } from "@/services/bridgeApi";
+import { bridgeApi, } from "@/services/bridgeApi";
 import { toPng, toSvg } from "html-to-image";
 import { ArrowLeft, Database, Download } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { transformSchemaToER } from "../../lib/schemaTransformer";
 import { Spinner } from "../ui/spinner";
 import { useBridgeQuery } from "@/hooks/useBridgeQuery";
+import { ColumnDetails, DatabaseSchemaDetails } from "@/types/database";
 
 interface Column extends ColumnDetails {
     fkRef?: string; // e.g., "roles.id"
@@ -60,7 +61,7 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
                 if (result && result.schemas?.some(s => s.tables?.length)) {
                     setSchemaData(result);
                     const { nodes: newNodes, edges: newEdges } = transformSchemaToER(result);
-                    setNodes(newNodes);
+                    setNodes(newNodes as typeof nodes);
                     setEdges(newEdges);
                 } else {
                     setError("Schema data found, but no tables to render.");

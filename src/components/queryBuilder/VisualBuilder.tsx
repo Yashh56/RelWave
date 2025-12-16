@@ -4,7 +4,7 @@ import { Button } from "../ui/button"
 import { Play } from "lucide-react"
 import { Badge } from "../ui/badge"
 import { DataTable } from "../DataTable"
-import { TableRow } from "@/services/bridgeApi"
+import { TableRow } from "@/types/database"
 
 
 interface VisualBuilderProps {

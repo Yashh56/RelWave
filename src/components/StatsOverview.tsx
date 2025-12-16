@@ -1,4 +1,4 @@
-import { DatabaseConnection } from '@/services/bridgeApi'
+import { DatabaseConnection } from '@/types/database'
 import { Card, CardContent } from './ui/card'
 import { Database } from 'lucide-react'
 

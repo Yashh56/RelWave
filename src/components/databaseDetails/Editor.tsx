@@ -1,13 +1,10 @@
-import React from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Button } from '../ui/button'
 import { Loader2, Play, RefreshCw, X } from 'lucide-react'
 import { Textarea } from '../ui/textarea'
 import { DataTable } from '../DataTable'
-import { QueryProgress } from '@/pages/DatabaseDetails'
-import { TableRow } from '@/services/bridgeApi'
-
-
+import { QueryProgress } from '@/types/database'
+import { TableRow } from '@/types/database'
 
 interface EditorProps {
     isExecuting: boolean;

@@ -4,29 +4,14 @@ import { ArrowLeft, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { bridgeApi, TableRow } from "@/services/bridgeApi";
+import { bridgeApi } from "@/services/bridgeApi";
 import QueryContentTabs from "@/components/databaseDetails/QueryContentTabs";
 import TableSelectorDropdown from "@/components/databaseDetails/TableSidebar";
 import DatabasePageHeader from "@/components/databaseDetails/DatabasePageHeader";
 import { useBridgeQuery } from "@/hooks/useBridgeQuery";
 import BridgeNotInitLoader from "@/components/bridge/BridgeNotInitLoader";
 import { Spinner } from "@/components/ui/spinner";
-
-export interface TableInfo {
-  schema: string;
-  name: string;
-  type: string;
-}
-
-export interface SelectedTable {
-  schema: string;
-  name: string;
-}
-
-export interface QueryProgress {
-  rows: number;
-  elapsed: number;
-}
+import { QueryProgress, SelectedTable, TableInfo, TableRow } from "@/types/database";
 
 const DatabaseDetail = () => {
   const { id: dbId } = useParams<{ id: string }>();

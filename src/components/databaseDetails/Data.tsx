@@ -1,9 +1,7 @@
-import React from 'react'
-import { Card, CardHeader, CardAction, CardContent, CardFooter, CardTitle, CardDescription } from '../ui/card'
+import { Card, CardHeader, CardContent, CardTitle, CardDescription } from '../ui/card'
 import { RefreshCw } from 'lucide-react'
 import { DataTable } from '../DataTable'
-import { TableRow } from '@/services/bridgeApi';
-import { SelectedTable } from '@/pages/DatabaseDetails';
+import { SelectedTable, TableRow } from '@/types/database';
 
 
 interface DataProps {

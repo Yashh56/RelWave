@@ -1,4 +1,4 @@
-import { ColumnDetails } from '@/services/bridgeApi';
+import { ColumnDetails } from '@/types/database';
 import { Database } from 'lucide-react';
 import React from 'react'
 
@@ -25,7 +25,7 @@ const TableNode: React.FC<{ data: TableNodeData }> = ({ data }) => {
             </div>
             {/* Divider uses border color */}
             <div className="divide-y divide-border bg-primary/10 dark:bg-card rounded-b-lg">
-                {data.columns.map((col, idx) => (
+                {data.columns.map((col, _idx) => (
                     <div
                         key={`${data.label}-${col.name}`}
                         id={`${data.label}-${col.name}`}
