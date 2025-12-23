@@ -1,29 +1,71 @@
 import { BarChart3 } from 'lucide-react';
-import React from 'react';
+import { useMemo } from 'react';
 import {
-    BarChart, Bar, LineChart, Line, PieChart, Pie, ScatterChart, Scatter,
-    XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
+    BarChart,
+    Bar,
+    LineChart,
+    Line,
+    PieChart,
+    Pie,
+    ScatterChart,
+    Scatter,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    Legend,
+    ResponsiveContainer,
+    Cell,
 } from "recharts";
 
-// Adjusted COLORS for a vibrant, yet professional palette, optimized for light/dark contrast
-const COLORS = ["#06B6D4", "#A855F7", "#10B981", "#F59E0B", "#EF4444", "#52525B"]; // Cyan, Violet, Emerald, Amber, Red, Gray
+const COLORS = ["#06B6D4", "#A855F7", "#10B981", "#F59E0B", "#EF4444", "#52525B"];
+
+
+interface DataProps {
+    count: number | string;
+    [key: string]: any;
+}
+
 
 interface ChartRendererProps {
     chartType: "bar" | "line" | "pie" | "scatter";
     xAxis: string;
     yAxis: string;
-    data: Array<Record<string, any>>;
+    data: DataProps[];
 }
 
-export const ChartRenderer: React.FC<ChartRendererProps> = ({
+export const ChartRenderer = ({
     chartType,
     xAxis,
     yAxis,
     data,
-}) => {
-    if (!xAxis || !yAxis) {
+}: ChartRendererProps) => {
+    const chartData = useMemo(() => {
+        if (!data || !Array.isArray(data) || !xAxis) {
+            return [];
+        }
+
+        return data.map((item) => {
+            const xVal = item[xAxis];
+
+            const countVal = item.count || item.COUNT || item.Count;
+
+            let numValue = 0;
+            if (countVal !== undefined && countVal !== null && countVal !== '') {
+                const parsed = parseFloat(String(countVal));
+                numValue = isNaN(parsed) ? 0 : parsed;
+            }
+
+            return {
+                name: xVal != null ? String(xVal) : 'N/A',
+                value: numValue,
+            };
+        });
+    }, [data, xAxis]);
+
+    if (!xAxis || chartData.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center h-[400px] text-muted-foreground">
+            <div className="flex flex-col items-center justify-center h-[400px] text-gray-500">
                 <BarChart3 className="h-10 w-10 mb-3" />
                 <p className="text-lg font-semibold">Configure axes to generate chart</p>
                 <p className="text-sm">Select both X and Y columns to plot your data.</p>
@@ -31,20 +73,13 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
         );
     }
 
-    const chartData = data.map((row) => ({
-        x: row[xAxis],
-        y: Number(row[yAxis]) || 0,
-    }));
-
-    // Dynamically set Recharts theme based on the presence of the 'dark' class on the body
-    const isDarkMode = document.body.classList.contains('dark');
-
+    const isDarkMode = typeof document !== 'undefined' && document.body.classList.contains('dark');
     const rechartsTheme = {
-        stroke: isDarkMode ? "#E5E7EB" : "#1F2937", // Axes/Tick color
-        gridStroke: isDarkMode ? "#374151" : "#E5E7EB", // Grid line color
-        tooltipBg: isDarkMode ? "#1F2937" : "#FFFFFF", // Tooltip background
-        tooltipBorder: isDarkMode ? "#4B5563" : "#D1D5DB", // Tooltip border
-        lineStroke: COLORS[0], // Primary color for lines/bars
+        stroke: isDarkMode ? "#E5E7EB" : "#1F2937",
+        gridStroke: isDarkMode ? "#374151" : "#E5E7EB",
+        tooltipBg: isDarkMode ? "#1F2937" : "#FFFFFF",
+        tooltipBorder: isDarkMode ? "#4B5563" : "#D1D5DB",
+        lineStroke: COLORS[0],
     };
 
     const tooltipStyle = {
@@ -59,18 +94,20 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
         tick: { fill: rechartsTheme.stroke },
     };
 
+    const yAxisLabel = yAxis ? `Count of ${yAxis}` : "Count";
+
     switch (chartType) {
         case "bar":
             return (
                 <ResponsiveContainer width="100%" height={400}>
                     <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke={rechartsTheme.gridStroke} />
-                        <XAxis dataKey="x" {...axisProps} />
+                        <XAxis dataKey="name" {...axisProps} />
                         <YAxis {...axisProps} />
                         <Tooltip contentStyle={tooltipStyle} />
                         <Legend wrapperStyle={{ color: rechartsTheme.stroke, paddingTop: '10px' }} />
-                        <Bar dataKey="y" name={yAxis}>
-                            {chartData.map((_entry, index) => (
+                        <Bar dataKey="value" name={yAxisLabel}>
+                            {chartData.map((_, index) => (
                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                             ))}
                         </Bar>
@@ -83,11 +120,11 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
                 <ResponsiveContainer width="100%" height={400}>
                     <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke={rechartsTheme.gridStroke} />
-                        <XAxis dataKey="x" {...axisProps} />
+                        <XAxis dataKey="name" {...axisProps} />
                         <YAxis {...axisProps} />
                         <Tooltip contentStyle={tooltipStyle} />
                         <Legend wrapperStyle={{ color: rechartsTheme.stroke, paddingTop: '10px' }} />
-                        <Line type="monotone" dataKey="y" stroke={rechartsTheme.lineStroke} strokeWidth={3} name={yAxis} dot={{ fill: rechartsTheme.lineStroke, r: 4 }} activeDot={{ r: 6 }} />
+                        <Line type="monotone" dataKey="value" stroke={rechartsTheme.lineStroke} strokeWidth={3} name={yAxisLabel} dot={{ fill: rechartsTheme.lineStroke, r: 4 }} activeDot={{ r: 6 }} />
                     </LineChart>
                 </ResponsiveContainer>
             );
@@ -101,11 +138,11 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
                             cx="50%"
                             cy="50%"
                             labelLine={false}
-                            label={({ x, percent = 0 }) => `${x} (${(percent * 100).toFixed(0)}%)`}
+                            label={({ name, percent }) => `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`}
                             outerRadius={120}
-                            dataKey="y"
+                            dataKey="value"
                         >
-                            {chartData.map((_entry, index) => (
+                            {chartData.map((_, index) => (
                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke={rechartsTheme.tooltipBg} strokeWidth={3} />
                             ))}
                         </Pie>
@@ -118,13 +155,13 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
         case "scatter":
             return (
                 <ResponsiveContainer width="100%" height={400}>
-                    <ScatterChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                    <ScatterChart margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke={rechartsTheme.gridStroke} />
-                        <XAxis dataKey="x" {...axisProps} />
-                        <YAxis dataKey="y" {...axisProps} />
-                        <Tooltip contentStyle={tooltipStyle} />
+                        <XAxis dataKey="name" name={xAxis} {...axisProps} />
+                        <YAxis dataKey="value" name={yAxisLabel} {...axisProps} />
+                        <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={tooltipStyle} />
                         <Legend wrapperStyle={{ color: rechartsTheme.stroke, paddingTop: '10px' }} />
-                        <Scatter name={yAxis} data={chartData} fill={rechartsTheme.lineStroke} />
+                        <Scatter name={yAxisLabel} data={chartData} fill={rechartsTheme.lineStroke} />
                     </ScatterChart>
                 </ResponsiveContainer>
             );

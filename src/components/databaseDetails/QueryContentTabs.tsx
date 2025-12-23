@@ -10,6 +10,7 @@ import { TableRow } from "@/types/database";
 
 
 interface QueryContentTabsProps {
+    dbId?: string;
     selectedTable: SelectedTable | null;
     isExecuting: boolean;
     tableData: TableRow[];
@@ -22,6 +23,7 @@ interface QueryContentTabsProps {
 }
 
 const QueryContentTabs: FC<QueryContentTabsProps> = ({
+    dbId,
     selectedTable,
     isExecuting,
     tableData,
@@ -87,7 +89,12 @@ const QueryContentTabs: FC<QueryContentTabsProps> = ({
                 <Card className="bg-card border border-border rounded-xl shadow-elevated p-6">
                     <CardTitle className="text-xl text-foreground mb-4">Data Visualizations</CardTitle>
                     <CardDescription className="text-muted-foreground mb-6">Explore your data with interactive charts.</CardDescription>
-                    <ChartVisualization data={tableData} />
+                    {selectedTable && (
+                        <ChartVisualization
+                            selectedTable={selectedTable}
+                            dbId={dbId}
+                        />
+                    )}
                 </Card>
             </TabsContent>
         </Tabs >

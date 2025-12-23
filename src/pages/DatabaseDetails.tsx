@@ -337,6 +337,7 @@ const DatabaseDetail = () => {
           </div>
 
           <QueryContentTabs
+          dbId={dbId || ''}
             selectedTable={selectedTable}
             isExecuting={isExecuting}
             tableData={tableData}

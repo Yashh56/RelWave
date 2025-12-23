@@ -3,6 +3,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BarChart3, LineChart as LineChartIcon, PieChart as PieChartIcon, ScatterChart as ScatterChartIcon } from "lucide-react";
+import { ColumnDetails } from '@/types/database';
 
 interface ChartConfigPanelProps {
     chartType: "bar" | "line" | "pie" | "scatter";
@@ -13,7 +14,7 @@ interface ChartConfigPanelProps {
     setYAxis: (axis: string) => void;
     chartTitle: string;
     setChartTitle: (title: string) => void;
-    columns: string[];
+    columns: ColumnDetails[];
 }
 
 export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
@@ -63,7 +64,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border text-foreground">
                     {columns.map((col) => (
-                        <SelectItem key={col} value={col}> {col} </SelectItem>
+                        <SelectItem key={col.name} value={col.name}> {col.name} </SelectItem>
                     ))}
                 </SelectContent>
             </Select>
@@ -78,7 +79,7 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border text-foreground">
                     {columns.map((col) => (
-                        <SelectItem key={col} value={col}> {col} </SelectItem>
+                        <SelectItem key={col.name} value={col.name}> {col.name} </SelectItem>
                     ))}
                 </SelectContent>
             </Select>
