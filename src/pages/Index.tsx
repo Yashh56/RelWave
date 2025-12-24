@@ -34,8 +34,8 @@ const Index = () => {
   const [statsLoading, setStatsLoading] = useState(false);
   const [stats, setStats] = useState({ totalRows: 0, size: 0, totalTables: 0 });
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
-  // const [status, setStatus] = useState<'connected' | 'disconnected'>('disconnected');
-  const [status, setStatus] = useState(new Map<string, string>([]))
+  const [status, setStatus] = useState(new Map<string, string>([]));
+
   // --- Load databases ---
   const loadDatabases = useCallback(async () => {
     if (!bridgeReady) return;
@@ -71,7 +71,7 @@ const Index = () => {
 
   // --- Effects ---
   useEffect(() => {
-    if (!bridgeReady) return;  // <-- don't fetch yet
+    if (!bridgeReady) return;
     loadDatabases();
     async function fetchStatus() {
       try {
@@ -86,7 +86,6 @@ const Index = () => {
     }
     fetchStatus();
   }, [bridgeReady, loadDatabases]);
-
 
   // --- Refresh handler ---
   const handleRefresh = async () => {
@@ -158,34 +157,41 @@ const Index = () => {
   if (!bridgeReady) return <BridgeFailed />;
 
   return (
-    <div className="min-h-screen flex flex-col bg-background dark:bg-[#050505] text-foreground overflow-hidden">
-      <Header
-        refreshing={refreshing}
-        handleRefresh={handleRefresh}
-        isDialogOpen={isDialogOpen}
-        setIsDialogOpen={setIsDialogOpen}
-        formData={formData}
-        handleInputChange={handleInputChange}
-        setFormData={setFormData}
-        handleAddDatabase={handleAddDatabase}
-      />
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-background via-background to-primary/5 dark:bg-gradient-to-br dark:from-[#050505] dark:via-[#050505] dark:to-primary/5 text-foreground overflow-hidden relative">
+      {/* Decorative background elements */}
+      <div className="fixed top-0 right-0 w-96 h-96 bg-gradient-to-br from-primary/10 to-transparent rounded-full blur-3xl pointer-events-none" />
+      <div className="fixed bottom-0 left-0 w-64 h-64 bg-gradient-to-tr from-accent/10 to-transparent rounded-full blur-3xl pointer-events-none" />
+      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-br from-primary/5 via-transparent to-accent/5 rounded-full blur-3xl pointer-events-none" />
+      
+      <div className="relative z-10">
+        <Header
+          refreshing={refreshing}
+          handleRefresh={handleRefresh}
+          isDialogOpen={isDialogOpen}
+          setIsDialogOpen={setIsDialogOpen}
+          formData={formData}
+          handleInputChange={handleInputChange}
+          setFormData={setFormData}
+          handleAddDatabase={handleAddDatabase}
+        />
 
-      <DashboardContent
-        databases={databases}
-        loading={loading}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        handleDeleteDatabase={handleDeleteDatabase}
-        handleTestConnection={handleTestConnection}
-        connectedCount={databases.length}
-        totalTables={stats.totalTables}
-        totalRows={stats.totalRows}
-        totalSize={stats.size > 0 ? bytesToMBString(stats.size) : "0 MB"}
-        filteredDatabases={filteredDatabases}
-        setIsDialogOpen={setIsDialogOpen}
-        statsLoading={statsLoading}
-        status={status}
-      />
+        <DashboardContent
+          databases={databases}
+          loading={loading}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          handleDeleteDatabase={handleDeleteDatabase}
+          handleTestConnection={handleTestConnection}
+          connectedCount={databases.length}
+          totalTables={stats.totalTables}
+          totalRows={stats.totalRows}
+          totalSize={stats.size > 0 ? bytesToMBString(stats.size) : "0 MB"}
+          filteredDatabases={filteredDatabases}
+          setIsDialogOpen={setIsDialogOpen}
+          statsLoading={statsLoading}
+          status={status}
+        />
+      </div>
     </div>
   );
 };
