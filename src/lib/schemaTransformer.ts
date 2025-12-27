@@ -1,8 +1,4 @@
-import {
-  ColumnDetails,
-  DatabaseSchemaDetails,
-  TableSchemaDetails,
-} from "@/services/bridgeApi";
+import { ColumnDetails, DatabaseSchemaDetails, TableSchemaDetails } from "@/types/database";
 import { Edge, MarkerType, Node } from "reactflow";
 
 interface Column extends ColumnDetails {

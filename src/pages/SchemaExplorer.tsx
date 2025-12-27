@@ -3,18 +3,13 @@ import { useParams } from "react-router-dom";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import {
-    bridgeApi,
-    DatabaseSchemaDetails,
-    ColumnDetails,
-    TableSchemaDetails,
-    SchemaGroup
-} from "@/services/bridgeApi";
 import TreeViewPanel from "@/components/schemaExplorer/TreeViewPanel";
 import SchemaExplorerHeader from "@/components/schemaExplorer/SchemaExplorerHeader";
 import MetaDataPanel from "@/components/schemaExplorer/MetaDataPanel";
 import { Spinner } from "@/components/ui/spinner";
 import { useBridgeQuery } from "@/hooks/useBridgeQuery";
+import { ColumnDetails, DatabaseSchemaDetails, SchemaGroup, TableSchemaDetails } from "@/types/database";
+import { bridgeApi } from "@/services/bridgeApi";
 
 interface Column extends ColumnDetails {
     foreignKeyRef?: string;
