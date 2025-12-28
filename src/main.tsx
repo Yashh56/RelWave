@@ -8,7 +8,7 @@ import DatabaseDetail from './pages/DatabaseDetails';
 import NotFound from './pages/NotFound';
 import ERDiagram from './pages/ERDiagram';
 import QueryBuilder from './pages/QueryBuilder';
-import { ThemeProvider } from './components/theme-provider';
+import { ThemeProvider } from './components/common/ThemeProvider';
 import SchemaExplorer from './pages/SchemaExplorer';
 import { useBridgeInit } from "@/hooks/useBridgeInit";
 

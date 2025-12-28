@@ -9,10 +9,10 @@ import {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { toast } from "sonner";
-import Header from "@/components/queryBuilder/Header";
-import ControlPanel from "@/components/queryBuilder/ControlPanel";
-import VisualBuilder from "@/components/queryBuilder/VisualBuilder";
-import TableNode from "@/components/ERDiagram/TableNode";
+import QueryBuilderHeader from "@/components/query-builder/QueryBuilderHeader";
+import ControlPanel from "@/components/query-builder/ControlPanel";
+import VisualBuilder from "@/components/query-builder/VisualBuilder";
+import TableNode from "@/components/er-diagram/TableNode";
 import { isBridgeReady } from "@/services/bridgeClient";
 import { bridgeApi } from "@/services/bridgeApi";
 import { useBridgeQuery } from "@/hooks/useBridgeQuery";
@@ -317,7 +317,7 @@ ON ${sourceNode.data.tableName}.id = ${targetNode.data.tableName}.${sourceNode.d
 
   return (
     <div className="min-h-screen bg-background">
-      <Header id={id || "database"} />
+      <QueryBuilderHeader id={id || "database"} />
 
       <div className="container mx-auto px-4 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

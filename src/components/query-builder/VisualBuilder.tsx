@@ -1,0 +1,101 @@
+import ReactFlow, { Background, BackgroundVariant, Controls } from "reactflow"
+import { Card, CardTitle, CardContent, CardHeader } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Play } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { DataTable } from "@/components/common/DataTable"
+import { TableRow } from "@/types/database"
+
+
+interface VisualBuilderProps {
+    nodes: any[];
+    edges: any[];
+    onNodesChange: any;
+    onEdgesChange: any;
+    onConnect: any;
+    generatedSQL: string;
+    executeQuery: () => void;
+    queryResults: TableRow[];
+    nodeTypes: any;
+    isExecuting?: boolean;
+    rowCount?: number;
+    queryProgress?: number;
+}
+
+
+
+const VisualBuilder = (props: VisualBuilderProps) => {
+    const { nodes, edges, onNodesChange, onEdgesChange, onConnect, generatedSQL, executeQuery, queryResults, nodeTypes, isExecuting, rowCount, queryProgress } = props;
+
+    return (
+        <div className="lg:col-span-2 space-y-4">
+            <Card className="shadow-elevated h-[400px]">
+                <CardHeader>
+                    <CardTitle className="text-lg">Visual Diagram</CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                        Drag tables to arrange • Connect tables to create joins
+                    </p>
+                    {isExecuting && (
+                        <div className="mt-2">
+                            <div className="text-xs text-muted-foreground mb-1">
+                                Executing... {queryProgress}%
+                            </div>
+                            <div className="w-full bg-muted rounded-full h-2">
+                                <div
+                                    className="bg-primary h-2 rounded-full transition-all"
+                                    style={{ width: `${queryProgress || 0}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
+                </CardHeader>
+                <CardContent className="h-80 p-0">
+                    <ReactFlow
+                        nodes={nodes}
+                        edges={edges}
+                        onNodesChange={onNodesChange}
+                        onEdgesChange={onEdgesChange}
+                        onConnect={onConnect}
+                        nodeTypes={nodeTypes}
+                        fitView
+                    >
+                        <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
+                        <Controls />
+                    </ReactFlow>
+                </CardContent>
+            </Card>
+
+            {generatedSQL && (
+                <Card className="shadow-elevated">
+                    <CardHeader>
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg">Generated SQL</CardTitle>
+                            <Button size="sm" onClick={executeQuery} disabled={isExecuting}>
+                                <Play className="h-4 w-4 mr-2" />
+                                Execute
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        <pre className="bg-muted p-4 rounded-lg text-sm font-mono overflow-x-auto">
+                            {generatedSQL}
+                        </pre>
+                    </CardContent>
+                </Card>
+            )}
+
+            {queryResults.length > 0 && (
+                <Card className="shadow-elevated">
+                    <CardHeader>
+                        <CardTitle className="text-lg">Results</CardTitle>
+                        <Badge>{queryResults.length} rows</Badge>
+                    </CardHeader>
+                    <CardContent>
+                        <DataTable data={queryResults} />
+                    </CardContent>
+                </Card>
+            )}
+        </div>)
+}
+
+export default VisualBuilder
