@@ -1,7 +1,7 @@
 import { bridgeApi, } from "@/services/bridgeApi";
 import { toPng, toSvg } from "html-to-image";
 import { ArrowLeft, Database, Download } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
     Background,
@@ -15,7 +15,7 @@ import {
 import { toast } from "sonner";
 import { transformSchemaToER } from "@/lib/schemaTransformer";
 import { Spinner } from "@/components/ui/spinner";
-import { useBridgeQuery } from "@/hooks/useBridgeQuery";
+import { useFullSchema } from "@/hooks/useDbQueries";
 import { ColumnDetails, DatabaseSchemaDetails } from "@/types/database";
 
 interface Column extends ColumnDetails {
@@ -39,44 +39,29 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
     const { id: dbId } = useParams<{ id: string }>();
     const reactFlowInstance = useReactFlow();
 
-    const [schemaData, setSchemaData] = useState<DatabaseSchemaDetails | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
     const [nodes, setNodes, onNodesChange] = useNodesState<TableNodeData>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
-    const { data: bridgeReady, isLoading: bridgeLoading } = useBridgeQuery();
+    // Use React Query for schema data (cached!)
+    const { 
+        data: schemaData, 
+        isLoading, 
+        error: queryError 
+    } = useFullSchema(dbId);
 
-    // --- Fetch schema after bridge is ready ---
+    const error = queryError ? (queryError as Error).message : 
+                  (schemaData && !schemaData.schemas?.some(s => s.tables?.length)) 
+                    ? "Schema data found, but no tables to render." 
+                    : null;
+
+    // Transform schema to ER nodes/edges when data changes
     useEffect(() => {
-        if (!bridgeReady || !dbId) return;
-
-        const fetchSchema = async () => {
-            setLoading(true);
-            setError(null);
-
-            try {
-                const result = await bridgeApi.getSchema(dbId);
-                if (result && result.schemas?.some(s => s.tables?.length)) {
-                    setSchemaData(result);
-                    const { nodes: newNodes, edges: newEdges } = transformSchemaToER(result);
-                    setNodes(newNodes as typeof nodes);
-                    setEdges(newEdges);
-                } else {
-                    setError("Schema data found, but no tables to render.");
-                }
-            } catch (err: any) {
-                console.error("ER Diagram fetch failed:", err);
-                setError(err.message || "Failed to load schema for diagram.");
-                toast.error("ER Diagram Load Failed", { description: err.message });
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchSchema();
-    }, [bridgeReady, dbId, setNodes, setEdges]);
+        if (schemaData && schemaData.schemas?.some(s => s.tables?.length)) {
+            const { nodes: newNodes, edges: newEdges } = transformSchemaToER(schemaData);
+            setNodes(newNodes as typeof nodes);
+            setEdges(newEdges);
+        }
+    }, [schemaData, setNodes, setEdges]);
 
     // --- Export logic ---
     const handleExport = useCallback(
@@ -111,7 +96,7 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
     );
 
     // --- Conditional rendering ---
-    if (bridgeLoading || loading) {
+    if (isLoading) {
         return (
             <div className="h-screen flex items-center justify-center bg-background">
                 <Spinner className="h-8 w-8 text-primary" />

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,8 @@ import TreeViewPanel from "@/components/schema-explorer/TreeViewPanel";
 import SchemaExplorerHeader from "@/components/schema-explorer/SchemaExplorerHeader";
 import MetaDataPanel from "@/components/schema-explorer/MetaDataPanel";
 import { Spinner } from "@/components/ui/spinner";
-import { useBridgeQuery } from "@/hooks/useBridgeQuery";
+import { useFullSchema, useInvalidateCache } from "@/hooks/useDbQueries";
 import { ColumnDetails, DatabaseSchemaDetails, SchemaGroup, TableSchemaDetails } from "@/types/database";
-import { bridgeApi } from "@/services/bridgeApi";
 
 interface Column extends ColumnDetails {
     foreignKeyRef?: string;
@@ -29,49 +28,31 @@ interface DatabaseSchema extends DatabaseSchemaDetails {
 
 export default function SchemaExplorer() {
     const { id: dbId } = useParams<{ id: string }>();
-    const { data: bridgeReady, isLoading: bridgeLoading } = useBridgeQuery();
 
-    const [schemaData, setSchemaData] = useState<DatabaseSchema | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    // Use React Query for schema data (cached!)
+    const { 
+        data: schemaData, 
+        isLoading, 
+        error: queryError,
+        refetch 
+    } = useFullSchema(dbId);
+    
+    const { invalidateDatabase } = useInvalidateCache();
+    const error = queryError ? (queryError as Error).message : null;
 
     const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
     const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
     const [selectedItem, setSelectedItem] = useState<string | null>(null);
 
-    // --- Fetch schema after bridge is ready ---
-    const fetchSchema = useCallback(async () => {
-        if (!bridgeReady || !dbId) return;
-
-        setLoading(true);
-        setError(null);
-
-        try {
-            const result = await bridgeApi.getSchema(dbId);
-
-            if (result) {
-                const dbSchema = result as DatabaseSchema;
-                setSchemaData(dbSchema);
-                setSelectedItem(dbSchema.name);
-
-                if (dbSchema.schemas.length > 0) {
-                    setExpandedSchemas(new Set([dbSchema.schemas[0].name]));
-                }
-            } else {
-                setError(`Database ID ${dbId} found no schema data.`);
-            }
-        } catch (err: any) {
-            console.error("Failed to fetch schema:", err);
-            setError(err.message || "Failed to connect and load schema metadata.");
-            toast.error("Schema Load Failed", { description: err.message });
-        } finally {
-            setLoading(false);
-        }
-    }, [bridgeReady, dbId]);
-
+    // Initialize expanded schemas and selected item when data loads
     useEffect(() => {
-        fetchSchema();
-    }, [fetchSchema]);
+        if (schemaData) {
+            setSelectedItem(schemaData.name);
+            if (schemaData.schemas && schemaData.schemas.length > 0) {
+                setExpandedSchemas(new Set([schemaData.schemas[0].name]));
+            }
+        }
+    }, [schemaData]);
 
     // --- Toggle helpers ---
     const toggleSchema = (schemaName: string) => {
@@ -101,7 +82,7 @@ export default function SchemaExplorer() {
     const handleExport = (tableName: string) => toast.success(`Exported ${tableName} successfully`);
 
     // --- Conditional rendering ---
-    if (bridgeLoading || loading) {
+    if (isLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-background dark:bg-[#050505] text-foreground">
                 <Spinner className="size-16" />
@@ -117,7 +98,10 @@ export default function SchemaExplorer() {
                     <h2 className="text-xl font-bold mb-2">Error</h2>
                     <p className="text-sm text-muted-foreground">{error || "No schema data could be loaded."}</p>
                     <Button
-                        onClick={fetchSchema}
+                        onClick={() => {
+                            if (dbId) invalidateDatabase(dbId);
+                            refetch();
+                        }}
                         className="mt-4 bg-primary hover:bg-primary/90 text-white shadow-md shadow-primary/30"
                     >
                         <RefreshCw className="h-4 w-4 mr-2" /> Retry Load

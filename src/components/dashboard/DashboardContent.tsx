@@ -21,6 +21,7 @@ interface DashboardContentProps {
     handleTestConnection: (id: string, name: string) => void;
     filteredDatabases: Array<DatabaseConnection>;
     setIsDialogOpen: (isOpen: boolean) => void;
+    onDatabaseHover?: (dbId: string) => void;
 }
 
 const DashboardContent = ({
@@ -37,6 +38,7 @@ const DashboardContent = ({
     filteredDatabases,
     setIsDialogOpen,
     status,
+    onDatabaseHover,
 }: DashboardContentProps) => {
     return (
         <main className="flex-1 overflow-y-auto">
@@ -98,6 +100,7 @@ const DashboardContent = ({
                                     host={`${db.host}:${db.port}`}
                                     onDelete={() => handleDeleteDatabase(db.id, db.name)}
                                     onTest={() => handleTestConnection(db.id, db.name)}
+                                    onHover={onDatabaseHover}
                                 />
                             ))}
                         </div>
