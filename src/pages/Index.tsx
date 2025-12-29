@@ -1,13 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { bridgeApi } from "@/services/bridgeApi";
 import { useBridgeQuery } from "@/hooks/useBridgeQuery";
+import { 
+  useDatabases, 
+  useAddDatabase, 
+  useDeleteDatabase,
+  usePrefetch 
+} from "@/hooks/useDbQueries";
 import DashboardContent from "@/components/dashboard/DashboardContent";
 import BridgeLoader from "@/components/feedback/BridgeLoader";
 import BridgeFailed from "@/components/feedback/BridgeFailed";
 import Header from "@/components/common/Header";
 import { bytesToMBString } from "@/lib/bytesToMB";
-import { DatabaseConnection } from "@/types/database";
+import { useQuery } from "@tanstack/react-query";
 
 const INITIAL_FORM_DATA = {
   name: "",
@@ -24,74 +30,62 @@ const INITIAL_FORM_DATA = {
 const REQUIRED_FIELDS = ["name", "type", "host", "port", "user", "database"];
 
 const Index = () => {
-  const { data: bridgeReady, isLoading: bridgeLoading, error: bridgeError } = useBridgeQuery();
+  const { data: bridgeReady, isLoading: bridgeLoading } = useBridgeQuery();
 
+  //   React Query: Databases list with caching
+  const { 
+    data: databases = [], 
+    isLoading: loading, 
+    refetch: refetchDatabases,
+    isRefetching: refreshing 
+  } = useDatabases();
+
+  //   React Query: Total stats with caching
+  const { 
+    data: stats, 
+    isLoading: statsLoading,
+    refetch: refetchStats 
+  } = useQuery({
+    queryKey: ["totalStats"],
+    queryFn: () => bridgeApi.getTotalDatabaseStats(),
+    enabled: !!bridgeReady && databases.length > 0,
+    staleTime: 30 * 1000, // 30 seconds
+  });
+
+  //   React Query: Connection status
+  const { data: statusData } = useQuery({
+    queryKey: ["connectionStatus"],
+    queryFn: async () => {
+      const res = await bridgeApi.testAllConnections();
+      const statusMap = new Map<string, string>();
+      res.forEach((r) => statusMap.set(r.id, r.result.status));
+      return statusMap;
+    },
+    enabled: !!bridgeReady,
+    staleTime: 60 * 1000, // 1 minute
+  });
+
+  //   React Query: Mutations
+  const addDatabaseMutation = useAddDatabase();
+  const deleteDatabaseMutation = useDeleteDatabase();
+  
+  //   Prefetch for better UX
+  const { prefetchTables, prefetchStats } = usePrefetch();
+
+  // Local UI state only
   const [searchQuery, setSearchQuery] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [databases, setDatabases] = useState<DatabaseConnection[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [statsLoading, setStatsLoading] = useState(false);
-  const [stats, setStats] = useState({ totalRows: 0, size: 0, totalTables: 0 });
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
-  const [status, setStatus] = useState(new Map<string, string>([]));
 
-  // --- Load databases ---
-  const loadDatabases = useCallback(async () => {
-    if (!bridgeReady) return;
-
-    try {
-      setLoading(true);
-      const dbs = await bridgeApi.listDatabases();
-      setDatabases(dbs);
-
-      if (dbs.length > 0) await loadDatabaseStats();
-    } catch (err: any) {
-      console.error("Failed to load databases:", err);
-      toast.error("Failed to load databases", { description: err.message });
-    } finally {
-      setLoading(false);
-    }
-  }, [bridgeReady]);
-
-  // --- Load stats ---
-  const loadDatabaseStats = useCallback(async () => {
-    try {
-      setStatsLoading(true);
-      const res = await bridgeApi.getTotalDatabaseStats();
-      if (res) {
-        setStats({ totalRows: res.rows, size: res.sizeBytes, totalTables: res.tables });
-      }
-    } catch (err) {
-      console.error("Failed to load stats:", err);
-    } finally {
-      setStatsLoading(false);
-    }
-  }, []);
-
-  // --- Effects ---
-  useEffect(() => {
-    if (!bridgeReady) return;
-    loadDatabases();
-    async function fetchStatus() {
-      try {
-        const res = await bridgeApi.testAllConnections();
-        console.log(res);
-        res.map((r) => {
-          setStatus(prev => new Map(prev).set(r.id, r.result.status))
-        })
-      } catch (error) {
-        console.log(error)
-      }
-    }
-    fetchStatus();
-  }, [bridgeReady, loadDatabases]);
+  // Derived state
+  const status = statusData || new Map<string, string>();
+  const totalRows = stats?.rows || 0;
+  const totalSize = stats?.sizeBytes ? bytesToMBString(stats.sizeBytes) : "0 MB";
+  const totalTables = stats?.tables || 0;
 
   // --- Refresh handler ---
   const handleRefresh = async () => {
-    setRefreshing(true);
-    await loadDatabases();
-    setRefreshing(false);
+    await Promise.all([refetchDatabases(), refetchStats()]);
     toast.success("Databases refreshed");
   };
 
@@ -108,16 +102,16 @@ const Index = () => {
     }
 
     try {
-      const newDb = await bridgeApi.addDatabase({
+      await addDatabaseMutation.mutateAsync({
         ...formData,
         port: parseInt(formData.port),
         sslmode: formData.ssl ? (formData.sslmode || "require") : "disable"
       });
 
-      toast.success("Database connection added successfully", { description: `${newDb.name} is now available.` });
+      toast.success("Database connection added successfully");
       setFormData(INITIAL_FORM_DATA);
       setIsDialogOpen(false);
-      await loadDatabases();
+      refetchStats();
     } catch (err: any) {
       toast.error("Failed to add database", { description: err.message });
     }
@@ -126,9 +120,9 @@ const Index = () => {
   // --- Database actions ---
   const handleDeleteDatabase = async (id: string, name: string) => {
     try {
-      await bridgeApi.deleteDatabase(id);
+      await deleteDatabaseMutation.mutateAsync(id);
       toast.success("Database connection removed", { description: `${name} has been deleted.` });
-      await loadDatabases();
+      refetchStats();
     } catch (err: any) {
       toast.error("Failed to delete database", { description: err.message });
     }
@@ -148,6 +142,12 @@ const Index = () => {
     }
   };
 
+  // --- Prefetch on hover for faster navigation ---
+  const handleDatabaseHover = (dbId: string) => {
+    prefetchTables(dbId);
+    prefetchStats(dbId);
+  };
+
   const filteredDatabases = databases.filter(db =>
     db.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -159,7 +159,7 @@ const Index = () => {
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
       <Header
-        refreshing={refreshing}
+        refreshing={refreshing || addDatabaseMutation.isPending}
         handleRefresh={handleRefresh}
         isDialogOpen={isDialogOpen}
         setIsDialogOpen={setIsDialogOpen}
@@ -177,13 +177,14 @@ const Index = () => {
         handleDeleteDatabase={handleDeleteDatabase}
         handleTestConnection={handleTestConnection}
         connectedCount={databases.length}
-        totalTables={stats.totalTables}
-        totalRows={stats.totalRows}
-        totalSize={stats.size > 0 ? bytesToMBString(stats.size) : "0 MB"}
+        totalTables={totalTables}
+        totalRows={totalRows}
+        totalSize={totalSize}
         filteredDatabases={filteredDatabases}
         setIsDialogOpen={setIsDialogOpen}
         statsLoading={statsLoading}
         status={status}
+        onDatabaseHover={handleDatabaseHover}
       />
     </div>
   );

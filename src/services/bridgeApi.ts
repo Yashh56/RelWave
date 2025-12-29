@@ -289,6 +289,13 @@ class BridgeApiService {
     }
   }
 
+  /**
+   * Alias for getDatabaseStats - used by useDbQueries hook
+   */
+  async getDBStats(id: string): Promise<DatabaseStats | {}> {
+    return this.getDatabaseStats(id);
+  }
+
   async getTotalDatabaseStats(): Promise<DatabaseStats> {
     try {
       const result = await bridgeRequest("db.getTotalStats", {});
@@ -309,6 +316,42 @@ class BridgeApiService {
     } catch (error: any) {
       console.error("Failed to fetch schema details:", error);
       throw new Error(`Failed to fetch schema details: ${error.message}`);
+    }
+  }
+
+  /**
+   * List all schemas in a database
+   */
+  async listSchemas(id: string): Promise<{ name: string }[]> {
+    try {
+      if (!id) {
+        throw new Error("Database ID is required.");
+      }
+      const result = await bridgeRequest("db.listSchemas", { id });
+      return result?.data || [];
+    } catch (error: any) {
+      console.error("Failed to list schemas:", error);
+      throw new Error(`Failed to list schemas: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get table column details
+   */
+  async getTableDetails(id: string, schemaName: string, tableName: string): Promise<any[]> {
+    try {
+      if (!id || !schemaName || !tableName) {
+        throw new Error("Database ID, schema name, and table name are required.");
+      }
+      const result = await bridgeRequest("db.getTableDetails", {
+        id,
+        schemaName,
+        tableName,
+      });
+      return result?.data || [];
+    } catch (error: any) {
+      console.error("Failed to get table details:", error);
+      throw new Error(`Failed to get table details: ${error.message}`);
     }
   }
 

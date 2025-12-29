@@ -13,6 +13,251 @@ export type PGConfig = {
   sslmode?: string;
 };
 
+// ============================================
+// CACHING SYSTEM FOR POSTGRES CONNECTOR
+// ============================================
+
+// Cache configuration
+const CACHE_TTL = 60000; // 1 minute default TTL
+const STATS_CACHE_TTL = 30000; // 30 seconds for stats (changes more frequently)
+const SCHEMA_CACHE_TTL = 300000; // 5 minutes for schemas (rarely change)
+
+/**
+ * Generic cache entry with TTL support
+ */
+type CacheEntry<T> = {
+  data: T;
+  timestamp: number;
+  ttl: number;
+};
+
+/**
+ * Type definitions for cached data
+ */
+type TableInfo = {
+  schema: string;
+  name: string;
+  type: string;
+};
+
+type PrimaryKeyInfo = {
+  column_name: string;
+};
+
+type DBStats = {
+  total_tables: number;
+  total_db_size_mb: number;
+  total_rows: number;
+};
+
+type SchemaInfo = {
+  name: string;
+};
+
+type ColumnDetail = {
+  name: string;
+  type: string;
+  not_nullable: boolean;
+  default_value: string | null;
+  is_primary_key: boolean;
+  is_foreign_key: boolean;
+};
+
+/**
+ * PostgreSQL Cache Manager - handles all caching for Postgres connector
+ */
+export class PostgresCacheManager {
+  // Cache stores for different data types
+  private tableListCache = new Map<string, CacheEntry<TableInfo[]>>();
+  private primaryKeysCache = new Map<string, CacheEntry<PrimaryKeyInfo[]>>();
+  private dbStatsCache = new Map<string, CacheEntry<DBStats>>();
+  private schemasCache = new Map<string, CacheEntry<SchemaInfo[]>>();
+  private tableDetailsCache = new Map<string, CacheEntry<ColumnDetail[]>>();
+
+  /**
+   * Generate cache key from config
+   */
+  private getConfigKey(cfg: PGConfig): string {
+    return `${cfg.host}:${cfg.port || 5432}:${cfg.database || ""}`;
+  }
+
+  /**
+   * Generate cache key for table-specific data
+   */
+  private getTableKey(cfg: PGConfig, schema: string, table: string): string {
+    return `${this.getConfigKey(cfg)}:${schema}:${table}`;
+  }
+
+  /**
+   * Generate cache key for schema-specific data
+   */
+  private getSchemaKey(cfg: PGConfig, schema: string): string {
+    return `${this.getConfigKey(cfg)}:${schema}`;
+  }
+
+  /**
+   * Check if cache entry is valid
+   */
+  private isValid<T>(entry: CacheEntry<T> | undefined): boolean {
+    if (!entry) return false;
+    return Date.now() - entry.timestamp < entry.ttl;
+  }
+
+  // ============ TABLE LIST CACHE ============
+  getTableList(cfg: PGConfig, schema?: string): TableInfo[] | null {
+    const key = schema ? this.getSchemaKey(cfg, schema) : this.getConfigKey(cfg);
+    const entry = this.tableListCache.get(key);
+    if (this.isValid(entry)) {
+      console.log(`[Postgres Cache] HIT: tableList for ${key}`);
+      return entry!.data;
+    }
+    return null;
+  }
+
+  setTableList(cfg: PGConfig, data: TableInfo[], schema?: string): void {
+    const key = schema ? this.getSchemaKey(cfg, schema) : this.getConfigKey(cfg);
+    this.tableListCache.set(key, { data, timestamp: Date.now(), ttl: CACHE_TTL });
+    console.log(`[Postgres Cache] SET: tableList for ${key}`);
+  }
+
+  // ============ PRIMARY KEYS CACHE ============
+  getPrimaryKeys(cfg: PGConfig, schema: string, table: string): PrimaryKeyInfo[] | null {
+    const key = this.getTableKey(cfg, schema, table);
+    const entry = this.primaryKeysCache.get(key);
+    if (this.isValid(entry)) {
+      console.log(`[Postgres Cache] HIT: primaryKeys for ${key}`);
+      return entry!.data;
+    }
+    return null;
+  }
+
+  setPrimaryKeys(cfg: PGConfig, schema: string, table: string, data: PrimaryKeyInfo[]): void {
+    const key = this.getTableKey(cfg, schema, table);
+    this.primaryKeysCache.set(key, { data, timestamp: Date.now(), ttl: CACHE_TTL });
+    console.log(`[Postgres Cache] SET: primaryKeys for ${key}`);
+  }
+
+  // ============ DB STATS CACHE ============
+  getDBStats(cfg: PGConfig): DBStats | null {
+    const key = this.getConfigKey(cfg);
+    const entry = this.dbStatsCache.get(key);
+    if (this.isValid(entry)) {
+      console.log(`[Postgres Cache] HIT: dbStats for ${key}`);
+      return entry!.data;
+    }
+    return null;
+  }
+
+  setDBStats(cfg: PGConfig, data: DBStats): void {
+    const key = this.getConfigKey(cfg);
+    this.dbStatsCache.set(key, { data, timestamp: Date.now(), ttl: STATS_CACHE_TTL });
+    console.log(`[Postgres Cache] SET: dbStats for ${key}`);
+  }
+
+  // ============ SCHEMAS CACHE ============
+  getSchemas(cfg: PGConfig): SchemaInfo[] | null {
+    const key = this.getConfigKey(cfg);
+    const entry = this.schemasCache.get(key);
+    if (this.isValid(entry)) {
+      console.log(`[Postgres Cache] HIT: schemas for ${key}`);
+      return entry!.data;
+    }
+    return null;
+  }
+
+  setSchemas(cfg: PGConfig, data: SchemaInfo[]): void {
+    const key = this.getConfigKey(cfg);
+    this.schemasCache.set(key, { data, timestamp: Date.now(), ttl: SCHEMA_CACHE_TTL });
+    console.log(`[Postgres Cache] SET: schemas for ${key}`);
+  }
+
+  // ============ TABLE DETAILS CACHE ============
+  getTableDetails(cfg: PGConfig, schema: string, table: string): ColumnDetail[] | null {
+    const key = this.getTableKey(cfg, schema, table);
+    const entry = this.tableDetailsCache.get(key);
+    if (this.isValid(entry)) {
+      console.log(`[Postgres Cache] HIT: tableDetails for ${key}`);
+      return entry!.data;
+    }
+    return null;
+  }
+
+  setTableDetails(cfg: PGConfig, schema: string, table: string, data: ColumnDetail[]): void {
+    const key = this.getTableKey(cfg, schema, table);
+    this.tableDetailsCache.set(key, { data, timestamp: Date.now(), ttl: CACHE_TTL });
+    console.log(`[Postgres Cache] SET: tableDetails for ${key}`);
+  }
+
+  // ============ CACHE MANAGEMENT ============
+  
+  /**
+   * Clear all caches for a specific database connection
+   */
+  clearForConnection(cfg: PGConfig): void {
+    const configKey = this.getConfigKey(cfg);
+    
+    // Clear all entries that start with this config key
+    for (const [key] of this.tableListCache) {
+      if (key.startsWith(configKey)) this.tableListCache.delete(key);
+    }
+    for (const [key] of this.primaryKeysCache) {
+      if (key.startsWith(configKey)) this.primaryKeysCache.delete(key);
+    }
+    for (const [key] of this.tableDetailsCache) {
+      if (key.startsWith(configKey)) this.tableDetailsCache.delete(key);
+    }
+    
+    this.dbStatsCache.delete(configKey);
+    this.schemasCache.delete(configKey);
+    
+    console.log(`[Postgres Cache] Cleared all caches for ${configKey}`);
+  }
+
+  /**
+   * Clear table-specific cache (useful after DDL operations)
+   */
+  clearTableCache(cfg: PGConfig, schema: string, table: string): void {
+    const key = this.getTableKey(cfg, schema, table);
+    this.primaryKeysCache.delete(key);
+    this.tableDetailsCache.delete(key);
+    console.log(`[Postgres Cache] Cleared table cache for ${key}`);
+  }
+
+  /**
+   * Clear all caches
+   */
+  clearAll(): void {
+    this.tableListCache.clear();
+    this.primaryKeysCache.clear();
+    this.dbStatsCache.clear();
+    this.schemasCache.clear();
+    this.tableDetailsCache.clear();
+    console.log(`[Postgres Cache] Cleared all caches`);
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getStats(): {
+    tableLists: number;
+    primaryKeys: number;
+    dbStats: number;
+    schemas: number;
+    tableDetails: number;
+  } {
+    return {
+      tableLists: this.tableListCache.size,
+      primaryKeys: this.primaryKeysCache.size,
+      dbStats: this.dbStatsCache.size,
+      schemas: this.schemasCache.size,
+      tableDetails: this.tableDetailsCache.size,
+    };
+  }
+}
+
+// Singleton cache manager instance
+export const postgresCache = new PostgresCacheManager();
+
 /**
  * Creates a new Client instance from the config.
  * Encapsulates the configuration mapping logic.
@@ -143,6 +388,12 @@ export async function fetchTableData(
  */
 
 export async function listTables(connection: PGConfig, schemaName?: string) {
+  // Check cache first
+  const cached = postgresCache.getTableList(connection, schemaName);
+  if (cached !== null) {
+    return cached;
+  }
+
   const client = createClient(connection);
 
   let query = `
@@ -168,7 +419,13 @@ export async function listTables(connection: PGConfig, schemaName?: string) {
     const res = await client.query(query, queryParams);
 
     await client.end();
-    return res.rows; // [{schema, name, type}, ...]
+
+    const result = res.rows;
+
+    // Cache the result
+    postgresCache.setTableList(connection, result, schemaName);
+
+    return result; // [{schema, name, type}, ...]
   } catch (err) {
     try {
       await client.end();
@@ -178,6 +435,12 @@ export async function listTables(connection: PGConfig, schemaName?: string) {
 }
 
 export async function listPrimaryKeys(connection: PGConfig, schemaName: string = 'public', tableName: string) {
+  // Check cache first
+  const cached = postgresCache.getPrimaryKeys(connection, schemaName, tableName);
+  if (cached !== null) {
+    return cached;
+  }
+
   const client = createClient(connection);
 
   const query = `
@@ -196,7 +459,13 @@ AND
   try {
     await client.connect();
     const res = await client.query(query, [tableName]);
-    return res.rows
+    
+    const result = res.rows;
+    
+    // Cache the result
+    postgresCache.setPrimaryKeys(connection, schemaName, tableName, result);
+    
+    return result;
   } catch (err) {
     try {
       await client.end();
@@ -332,6 +601,12 @@ export async function getDBStats(connection: PGConfig): Promise<{
   total_db_size_mb: number;
   total_rows: number;
 }> {
+  // Check cache first
+  const cached = postgresCache.getDBStats(connection);
+  if (cached !== null) {
+    return cached;
+  }
+
   const client = createClient(connection);
   try {
     await client.connect();
@@ -350,11 +625,16 @@ export async function getDBStats(connection: PGConfig): Promise<{
     await client.end();
 
     // CRITICAL: Update the return type structure
-    return res.rows?.[0] as {
+    const result = res.rows?.[0] as {
       total_tables: number;
       total_db_size_mb: number;
       total_rows: number;
     };
+
+    // Cache the result
+    postgresCache.setDBStats(connection, result);
+
+    return result;
   } catch (error) {
     // 5. CRITICAL: Handle the error (log it and re-throw it or return null/undefined)
     console.error("Error fetching database stats:", error);
@@ -372,6 +652,12 @@ export async function getDBStats(connection: PGConfig): Promise<{
  * Retrieves list of schemas in the database.
  */
 export async function listSchemas(connection: PGConfig) {
+  // Check cache first
+  const cached = postgresCache.getSchemas(connection);
+  if (cached !== null) {
+    return cached;
+  }
+
   const client = createClient(connection);
   try {
     await client.connect();
@@ -383,7 +669,13 @@ export async function listSchemas(connection: PGConfig) {
              ORDER BY nspname;`
     );
     await client.end();
-    return res.rows; // [{ name: 'public' }, { name: 'analytics' }, ...]
+
+    const result = res.rows;
+
+    // Cache the result
+    postgresCache.setSchemas(connection, result);
+
+    return result; // [{ name: 'public' }, { name: 'analytics' }, ...]
   } catch (err) {
     try {
       await client.end();
@@ -398,6 +690,12 @@ export async function getTableDetails(
   schemaName: string,
   tableName: string
 ) {
+  // Check cache first
+  const cached = postgresCache.getTableDetails(connection, schemaName, tableName);
+  if (cached !== null) {
+    return cached;
+  }
+
   const client = createClient(connection);
   try {
     await client.connect();
@@ -422,7 +720,12 @@ export async function getTableDetails(
     );
     await client.end();
 
-    return res.rows;
+    const result = res.rows;
+
+    // Cache the result
+    postgresCache.setTableDetails(connection, schemaName, tableName, result);
+
+    return result;
   } catch (err) {
     // ... (Error handling)
     throw err;

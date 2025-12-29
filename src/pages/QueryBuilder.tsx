@@ -13,12 +13,11 @@ import QueryBuilderHeader from "@/components/query-builder/QueryBuilderHeader";
 import ControlPanel from "@/components/query-builder/ControlPanel";
 import VisualBuilder from "@/components/query-builder/VisualBuilder";
 import TableNode from "@/components/er-diagram/TableNode";
-import { isBridgeReady } from "@/services/bridgeClient";
-import { bridgeApi } from "@/services/bridgeApi";
-import { useBridgeQuery } from "@/hooks/useBridgeQuery";
+import { useFullSchema } from "@/hooks/useDbQueries";
 import { Loader2 } from "lucide-react";
 import { SchemaDetails } from "@/types/schema";
 import { TableRow } from "@/types/database";
+import { bridgeApi } from "@/services/bridgeApi";
 
 const nodeTypes = {
   table: TableNode,
@@ -33,47 +32,23 @@ const QueryBuilder = () => {
   const [sortBy, setSortBy] = useState("");
   const [groupBy, setGroupBy] = useState("");
   const [generatedSQL, setGeneratedSQL] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [schemaData, setSchemaData] = useState<SchemaDetails | null>(null);
   const [querySessionId, setQuerySessionId] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [rowCount, setRowCount] = useState(0);
   const [queryProgress, setQueryProgress] = useState<any>(null);
   const [tableData, setTableData] = useState<TableRow[]>([]);
 
-  const { data: bridgeReady, isLoading: bridgeLoading } = useBridgeQuery();
-
-
-  useEffect(() => {
-    if (!isBridgeReady || !id) return;
-
-    const fetchSchema = async () => {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const result = await bridgeApi.getSchema(id);
-        if (result && result.schemas?.some(s => s.tables?.length)) {
-          setSchemaData(result);
-        } else {
-          setError("Schema data found, but no tables to render.");
-        }
-
-        console.log("ER Diagram schema fetch result:", result?.schemas);
-        console.log("Nodes after fetch:", schemaData);
-
-      } catch (err: any) {
-        console.error("ER Diagram fetch failed:", err);
-        setError(err.message || "Failed to load schema for diagram.");
-        toast.error("ER Diagram Load Failed", { description: err.message });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchSchema();
-  }, [bridgeReady, id, setNodes, setEdges]);
+  // Use React Query for schema data (cached!)
+  const { 
+    data: schemaData, 
+    isLoading: loading, 
+    error: queryError 
+  } = useFullSchema(id);
+  
+  const error = queryError ? (queryError as Error).message : 
+                (schemaData && !schemaData.schemas?.some(s => s.tables?.length)) 
+                  ? "Schema data found, but no tables to render." 
+                  : null;
 
   const addTable = useCallback(() => {
     if (!schemaData || !selectedTable) return;
@@ -306,7 +281,7 @@ ON ${sourceNode.data.tableName}.id = ${targetNode.data.tableName}.${sourceNode.d
   }, [querySessionId]);
 
 
-  if (loading || bridgeLoading) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <Loader2 className="w-10 h-10 mr-2 animate-spin text-primary" />
@@ -322,7 +297,7 @@ ON ${sourceNode.data.tableName}.id = ${targetNode.data.tableName}.${sourceNode.d
       <div className="container mx-auto px-4 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Panel - Controls */}
-          {schemaData && !loading && !bridgeLoading && (
+          {schemaData && !loading && (
             <ControlPanel
               selectedTable={selectedTable}
               setSelectedTable={setSelectedTable}
@@ -340,7 +315,7 @@ ON ${sourceNode.data.tableName}.id = ${targetNode.data.tableName}.${sourceNode.d
             />
           )}
           {/* Middle Panel - Visual Builder */}
-          {schemaData && !loading && !bridgeLoading && (
+          {schemaData && !loading && (
             <VisualBuilder
               nodes={nodes}
               edges={edges}

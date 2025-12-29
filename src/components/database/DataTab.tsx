@@ -2,10 +2,7 @@ import { FC, useMemo } from 'react';
 import { Card, CardHeader, CardContent, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-    Pagination,
-    PaginationContent,
     PaginationEllipsis,
-    PaginationItem,
     PaginationLink,
     PaginationNext,
     PaginationPrevious,
@@ -112,7 +109,7 @@ const DataTab: FC<DataTabProps> = ({
                     </div>
                 </div>
             </CardHeader>
-            <CardContent className="pt-4">
+            <CardContent className="pt-4 flex flex-col">
                 {isExecuting && rowCount === 0 ? (
                     <div className="text-center py-16 text-muted-foreground">
                         <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-3" />
@@ -126,7 +123,7 @@ const DataTab: FC<DataTabProps> = ({
 
                         {/* Pagination Controls - Show when there's data */}
                         {hasData && (
-                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 pt-4 border-t">
+                            <div className="flex items-center justify-end gap-4 mt-4 pt-4 border-t">
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm text-muted-foreground">Rows per page:</span>
                                     <Select
@@ -147,47 +144,38 @@ const DataTab: FC<DataTabProps> = ({
                                     </Select>
                                 </div>
 
-                                <Pagination>
-                                    <PaginationContent>
-                                        <PaginationItem>
-                                            <PaginationPrevious
-                                                onClick={() => canGoPrevious && !isExecuting && onPageChange(currentPage - 1)}
-                                                className={(!canGoPrevious || isExecuting) ? 'pointer-events-none opacity-50' : ''}
-                                            />
-                                        </PaginationItem>
+                                <div className="flex items-center gap-1">
+                                    <PaginationPrevious
+                                        onClick={() => canGoPrevious && !isExecuting && onPageChange(currentPage - 1)}
+                                        className={(!canGoPrevious || isExecuting) ? 'pointer-events-none opacity-50' : ''}
+                                    />
 
-                                        {totalRows > 0 && pageNumbers.map((page, index) => (
-                                            <PaginationItem key={index}>
-                                                {page === 'ellipsis' ? (
-                                                    <PaginationEllipsis />
-                                                ) : (
-                                                    <PaginationLink
-                                                        onClick={() => !isExecuting && onPageChange(page)}
-                                                        isActive={currentPage === page}
-                                                        className={isExecuting ? 'pointer-events-none opacity-50' : ''}
-                                                    >
-                                                        {page}
-                                                    </PaginationLink>
-                                                )}
-                                            </PaginationItem>
-                                        ))}
+                                    {totalRows > 0 && pageNumbers.map((page, index) => (
+                                        page === 'ellipsis' ? (
+                                            <PaginationEllipsis key={index} />
+                                        ) : (
+                                            <PaginationLink
+                                                key={index}
+                                                onClick={() => !isExecuting && onPageChange(page)}
+                                                isActive={currentPage === page}
+                                                className={isExecuting ? 'pointer-events-none opacity-50' : ''}
+                                            >
+                                                {page}
+                                            </PaginationLink>
+                                        )
+                                    ))}
 
-                                        {totalRows === 0 && (
-                                            <PaginationItem>
-                                                <PaginationLink isActive>
-                                                    {currentPage}
-                                                </PaginationLink>
-                                            </PaginationItem>
-                                        )}
+                                    {totalRows === 0 && (
+                                        <PaginationLink isActive>
+                                            {currentPage}
+                                        </PaginationLink>
+                                    )}
 
-                                        <PaginationItem>
-                                            <PaginationNext
-                                                onClick={() => canGoNext && !isExecuting && onPageChange(currentPage + 1)}
-                                                className={(!canGoNext || isExecuting) ? 'pointer-events-none opacity-50' : ''}
-                                            />
-                                        </PaginationItem>
-                                    </PaginationContent>
-                                </Pagination>
+                                    <PaginationNext
+                                        onClick={() => canGoNext && !isExecuting && onPageChange(currentPage + 1)}
+                                        className={(!canGoNext || isExecuting) ? 'pointer-events-none opacity-50' : ''}
+                                    />
+                                </div>
                             </div>
                         )}
                     </>

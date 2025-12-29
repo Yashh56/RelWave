@@ -31,6 +31,7 @@ interface DatabaseCardProps {
   host: string;
   onDelete?: () => void;
   onTest?: () => void;
+  onHover?: (dbId: string) => void;
 }
 
 interface DatabaseStats {
@@ -63,7 +64,8 @@ export const DatabaseCard = ({
   status,
   host,
   onDelete,
-  onTest
+  onTest,
+  onHover
 }: DatabaseCardProps) => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [result, setResult] = useState<DatabaseStats | null>(null);
@@ -115,7 +117,10 @@ export const DatabaseCard = ({
 
   return (
     <>
-      <Card className="group bg-card border-border hover:border-primary/50 transition-colors cursor-pointer">
+      <Card 
+        className="group bg-card border-border hover:border-primary/50 transition-colors cursor-pointer"
+        onMouseEnter={() => onHover?.(id)}
+      >
         <CardHeader className="p-4 pb-3">
           <div className="flex items-start justify-between gap-2">
             <Link to={`/${id}`} className="flex items-center gap-3 min-w-0 flex-1">
