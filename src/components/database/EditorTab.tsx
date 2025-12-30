@@ -1,8 +1,8 @@
 import { FC } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Play, RefreshCw, X, Code2, Clock } from "lucide-react";
-import { Textarea } from "@/components/ui/textarea";
+import { Loader2, Play, RefreshCw, X, Code2, Clock, AlertCircle } from "lucide-react";
+import SqlEditor from "./SqlEditor";
 import { DataTable } from "@/components/common/DataTable";
 import { QueryProgress, TableRow } from "@/types/database";
 
@@ -11,6 +11,7 @@ interface EditorTabProps {
   tableData: TableRow[];
   rowCount: number;
   queryProgress: QueryProgress | null;
+  queryError: string | null;
   isExecuting: boolean;
   onQueryChange: (query: string) => void;
   onExecuteQuery: () => void;
@@ -22,6 +23,7 @@ const EditorTab: FC<EditorTabProps> = ({
   tableData,
   rowCount,
   queryProgress,
+  queryError,
   isExecuting,
   onQueryChange,
   onExecuteQuery,
@@ -70,22 +72,16 @@ const EditorTab: FC<EditorTabProps> = ({
         </CardHeader>
 
         <CardContent className="pt-4">
-          <div className="relative">
-            <Textarea
-              value={query}
-              onChange={(e) => onQueryChange(e.target.value)}
-              disabled={isExecuting}
-              className="font-mono text-sm min-h-[200px] resize-y bg-muted/30 border"
-              placeholder="-- Enter your SQL query here
+          <SqlEditor
+            value={query}
+            onChange={onQueryChange}
+            disabled={isExecuting}
+            placeholder="-- Enter your SQL query here
 SELECT * FROM users WHERE role = 'Admin';
 
 -- Press Execute to run your query"
-            />
-
-            <div className="absolute bottom-2 right-2 text-xs text-muted-foreground bg-background/80 px-2 py-0.5 rounded">
-              {query.length} chars
-            </div>
-          </div>
+            minHeight="200px"
+          />
         </CardContent>
       </Card>
 
@@ -115,10 +111,12 @@ SELECT * FROM users WHERE role = 'Admin';
 
             <div className="flex items-center gap-2">
               <div
-                className={`h-2 w-2 rounded-full ${isExecuting ? "bg-yellow-500" : "bg-emerald-500"}`}
+                className={`h-2 w-2 rounded-full ${
+                  queryError ? "bg-red-500" : isExecuting ? "bg-yellow-500" : "bg-emerald-500"
+                }`}
               />
               <span className="text-xs text-muted-foreground">
-                {isExecuting ? "Processing" : "Complete"}
+                {queryError ? "Error" : isExecuting ? "Processing" : "Complete"}
               </span>
             </div>
           </div>
@@ -131,6 +129,14 @@ SELECT * FROM users WHERE role = 'Admin';
               <p className="text-sm font-medium">Awaiting first results batch...</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Your query is being processed
+              </p>
+            </div>
+          ) : queryError ? (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+              <AlertCircle className="h-8 w-8 text-destructive mb-3" />
+              <p className="text-sm font-medium text-destructive">Query Failed</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-md text-center px-4">
+                {queryError}
               </p>
             </div>
           ) : (

@@ -18,6 +18,7 @@ interface QueryContentTabsProps {
   pageSize: number;
   query: string;
   queryProgress: QueryProgress | null;
+  queryError: string | null;
   onQueryChange: (query: string) => void;
   onExecuteQuery: () => void;
   onCancelQuery: () => void;
@@ -36,6 +37,7 @@ const QueryContentTabs: FC<QueryContentTabsProps> = ({
   pageSize,
   query,
   queryProgress,
+  queryError,
   onQueryChange,
   onExecuteQuery,
   onCancelQuery,
@@ -80,6 +82,7 @@ const QueryContentTabs: FC<QueryContentTabsProps> = ({
             tableData={tableData}
             rowCount={rowCount}
             queryProgress={queryProgress}
+            queryError={queryError}
             isExecuting={isExecuting}
             onQueryChange={onQueryChange}
             onExecuteQuery={onExecuteQuery}

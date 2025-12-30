@@ -28,6 +28,7 @@ const DatabaseDetail = () => {
     pageSize,
     query,
     queryProgress,
+    queryError,
     isExecuting,
     loading,
     loadingTables,
@@ -128,6 +129,7 @@ const DatabaseDetail = () => {
             pageSize={pageSize}
             query={query}
             queryProgress={queryProgress}
+            queryError={queryError}
             onQueryChange={setQuery}
             onExecuteQuery={handleExecuteQuery}
             onCancelQuery={handleCancelQuery}

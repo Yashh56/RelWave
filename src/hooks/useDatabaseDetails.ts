@@ -18,6 +18,7 @@ interface UseDatabaseDetailsReturn {
     totalRows: number;
     query: string;
     queryProgress: QueryProgress | null;
+    queryError: string | null;
     isExecuting: boolean;
     loading: boolean;
     loadingTables: boolean;
@@ -86,6 +87,8 @@ export function useDatabaseDetails({
     const [queryProgress, setQueryProgress] = useState<QueryProgress | null>(null);
     const [queryResults, setQueryResults] = useState<TableRow[]>([]);
     const [queryRowCount, setQueryRowCount] = useState<number>(0);
+    const [queryError, setQueryError] = useState<string | null>(null);
+    const [hasExecutedQuery, setHasExecutedQuery] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     // Combined loading state
@@ -101,6 +104,11 @@ export function useDatabaseDetails({
             const newQuery = `SELECT * FROM ${schemaName}.${tableName} LIMIT ${pageSize};`;
             setQuery(newQuery);
             setCurrentPage(1);
+            // Reset query execution state when switching tables
+            setHasExecutedQuery(false);
+            setQueryResults([]);
+            setQueryRowCount(0);
+            setQueryError(null);
             // React Query will automatically fetch the data
         },
         [dbId, selectedTable, pageSize]
@@ -160,6 +168,8 @@ export function useDatabaseDetails({
             setQueryResults([]);
             setQueryRowCount(0);
             setQueryProgress(null);
+            setQueryError(null);
+            setHasExecutedQuery(true);
             setIsExecuting(true);
 
             const sessionId = await bridgeApi.createSession();
@@ -223,6 +233,9 @@ export function useDatabaseDetails({
             setIsExecuting(false);
             setQuerySessionId(null);
             setQueryProgress(null);
+            setQueryError(event.detail.error?.message || "An error occurred");
+            setQueryResults([]);
+            setQueryRowCount(0);
             toast.error("Query failed", {
                 description: event.detail.error?.message || "An error occurred",
             });
@@ -260,15 +273,19 @@ export function useDatabaseDetails({
         }
     }, [selectedTable]);
 
+    // Determine which data to show: query results (if query was executed) or table data
+    const showQueryResults = hasExecutedQuery || isExecuting;
+
     return {
         databaseName,
         tables,
         selectedTable,
-        tableData: isExecuting ? queryResults : tableData,
-        rowCount: isExecuting ? queryRowCount : rowCount,
+        tableData: showQueryResults ? queryResults : tableData,
+        rowCount: showQueryResults ? queryRowCount : rowCount,
         totalRows,
         query,
         queryProgress,
+        queryError,
         isExecuting: isExecuting || isTableDataLoading,
         loading,
         loadingTables: loadingTables || isRefetchingTables,
