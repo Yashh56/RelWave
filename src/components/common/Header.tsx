@@ -1,5 +1,5 @@
 import React from 'react'
-import { Plus, RefreshCw, Database } from 'lucide-react'
+import { Plus, RefreshCw, Database, Settings } from 'lucide-react'
 import { ModeToggle } from './ModeToggle'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Link } from 'react-router-dom'
 
 interface HeaderProps {
   refreshing: boolean
@@ -86,6 +87,12 @@ const Header = ({
             >
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             </Button>
+
+            <Link to={'/settings'}>
+              <Button variant="ghost" size="icon" className="h-9 w-9">
+                <Settings className="h-4 w-4" />
+              </Button>
+            </Link>
 
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>

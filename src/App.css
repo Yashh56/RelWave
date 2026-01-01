@@ -110,6 +110,56 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Theme Variants - Slate */
+[data-theme-variant="slate"] {
+  --primary: oklch(0.6 0.015 250);
+  --ring: oklch(0.6 0.015 250);
+}
+
+/* Theme Variants - Green */
+[data-theme-variant="green"] {
+  --primary: oklch(0.65 0.18 160);
+  --ring: oklch(0.65 0.18 160);
+}
+
+.dark[data-theme-variant="green"] {
+  --primary: oklch(0.7 0.18 160);
+  --ring: oklch(0.7 0.18 160);
+}
+
+/* Theme Variants - Purple */
+[data-theme-variant="purple"] {
+  --primary: oklch(0.65 0.25 290);
+  --ring: oklch(0.65 0.25 290);
+}
+
+.dark[data-theme-variant="purple"] {
+  --primary: oklch(0.7 0.22 290);
+  --ring: oklch(0.7 0.22 290);
+}
+
+/* Theme Variants - Orange */
+[data-theme-variant="orange"] {
+  --primary: oklch(0.7 0.18 60);
+  --ring: oklch(0.7 0.18 60);
+}
+
+.dark[data-theme-variant="orange"] {
+  --primary: oklch(0.75 0.18 60);
+  --ring: oklch(0.75 0.18 60);
+}
+
+/* Theme Variants - Rose */
+[data-theme-variant="rose"] {
+  --primary: oklch(0.7 0.22 10);
+  --ring: oklch(0.7 0.22 10);
+}
+
+.dark[data-theme-variant="rose"] {
+  --primary: oklch(0.72 0.2 10);
+  --ring: oklch(0.72 0.2 10);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
