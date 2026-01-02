@@ -52,9 +52,10 @@ const ChartRendererComponent = ({
     // ---- memoize heavy transforms ----
     const chartData = useMemo(() => {
         if (!data || !Array.isArray(data) || !xAxis) return [];
-
+        console.log(data)
         return data.map((item) => ({
-            name: item[xAxis] != null ? String(item[xAxis]) : "N/A",
+            // SQL query returns data with alias 'name', not the column name
+            name: item.name != null ? String(item.name) : "N/A",
             value: Number(item.count ?? item.COUNT ?? item.Count ?? 0) || 0,
         }));
     }, [data, xAxis]);
@@ -103,7 +104,7 @@ const ChartRendererComponent = ({
                     <YAxis {...axisProps} />
                     <Tooltip contentStyle={tooltipStyle} />
                     <Legend />
-                    <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                    <Bar dataKey="value" radius={[6, 6, 0, 0]} isAnimationActive={false}>
                         {chartData.map((_, i) => (
                             <Cell key={i} fill={COLORS[i % COLORS.length]} />
                         ))}
@@ -128,9 +129,10 @@ const ChartRendererComponent = ({
                     <Line
                         dataKey="value"
                         stroke={COLORS[0]}
-                        strokeWidth={2.5}
-                        dot={{ r: 4 }}
+                        strokeWidth={2}
+                        dot={{ fill: COLORS[0], r: 4 }}
                         activeDot={{ r: 6 }}
+                        isAnimationActive={false}
                         type="monotone"
                     />
                 </LineChart>
@@ -155,6 +157,7 @@ const ChartRendererComponent = ({
                         label={({ name, percent }) =>
                             `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`
                         }
+                        isAnimationActive={false}
                     >
                         {chartData.map((_, i) => (
                             <Cell key={i} fill={COLORS[i % COLORS.length]} />
@@ -179,13 +182,14 @@ const ChartRendererComponent = ({
                     <YAxis dataKey="value" {...axisProps} />
                     <Tooltip contentStyle={tooltipStyle} />
                     <Legend />
-                    <Scatter data={chartData} fill={COLORS[0]} />
+                    <Scatter data={chartData} fill={COLORS[0]} isAnimationActive={false} />
                 </ScatterChart>
             </ResponsiveContainer>
         );
     }
 
-    return null;
+    // ---- default fallback ----
+    return <div>Unsupported chart type</div>;
 };
 
-export const ChartRenderer = memo(ChartRendererComponent);
+export default ChartRendererComponent;

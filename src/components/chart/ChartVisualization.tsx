@@ -4,7 +4,7 @@ import { Download, Loader2, BarChart3, ImageIcon, FileCode } from "lucide-react"
 import { toPng, toSvg } from "html-to-image";
 import { toast } from "sonner";
 import { ChartConfigPanel } from "./ChartConfigPanel";
-import { ChartRenderer } from "./ChartRenderer";
+import ChartRenderer from "./ChartRenderer";
 import { ColumnDetails, SelectedTable } from "@/types/database";
 import { bridgeApi } from "@/services/bridgeApi";
 
@@ -96,44 +96,56 @@ export const ChartVisualization = ({ selectedTable, dbId }: ChartVisualizationPr
     getTables();
   }, [selectedTable, dbId]);
 
+  // Execute query when x or y axis changes
   useEffect(() => {
+    if (!xAxis || !yAxis) return;
 
-    async function getData() {
+    const executeQuery = async () => {
+      // Clear old data immediately when config changes
+      setRowData([]);
+      setIsExecuting(true);
+      setErrorMessage(null);
+
       try {
-        if (!dbId) return;
-
-        const generatedQuery = `SELECT "${xAxis}", COUNT("${yAxis}") as count 
-                         FROM "${selectedTable?.schema}"."${selectedTable?.name}" 
-                         GROUP BY "${xAxis}" 
-                         ORDER BY count DESC;`;
-
-
-        if (xAxis === "" || yAxis === "") return;
-        const sessionId = await bridgeApi.createSession(dbId);
+        const sessionId = `chart-${Date.now()}`;
         setQuerySessionId(sessionId);
-        await bridgeApi.runQuery({
-          sessionId: sessionId,
-          sql: generatedQuery,
-          batchSize: 1000,
-          dbId: dbId,
-        });
-        setIsExecuting(true);
-      } catch (error) {
-        toast.error("Failed to execute query");
-        setErrorMessage("Failed to execute query");
-      } finally {
-        setIsExecuting(false);
-      }
-    }
 
-    getData();
-  }, [xAxis, yAxis]);
+        // X-axis: grouping dimension (non-primary keys like address, name)
+        // Y-axis: what we're counting (primary keys like id)
+        const sql = `
+                    SELECT "${xAxis}" as name, COUNT("${yAxis}") as count 
+                    FROM "${selectedTable.schema}"."${selectedTable.name}" 
+                    GROUP BY "${xAxis}"
+                    ORDER BY count DESC
+                    LIMIT 50
+                `;
+
+        await bridgeApi.runQuery({
+          sessionId,
+          dbId: dbId || "",
+          sql: sql.trim(),
+          batchSize: 50,
+        });
+
+        // Query execution started successfully
+      } catch (err: any) {
+        console.error("Query execution error:", err);
+        setErrorMessage(err.message || "Failed to execute query");
+        setIsExecuting(false);
+        setRowData([]); // Clear data on error
+      }
+    };
+
+    executeQuery();
+  }, [xAxis, yAxis, selectedTable, dbId]);
 
   useEffect(() => {
     const handleResult = (event: CustomEvent) => {
       if (event.detail.sessionId !== querySessionId) return;
       setSchemaData(event.detail);
-      setRowData((prev: QueryResultRow[]) => [...prev, ...event.detail.rows]);
+      // Replace data instead of appending to prevent accumulation
+      setRowData(event.detail.rows);
+      setIsExecuting(false);
     };
 
     const handleError = (event: CustomEvent) => {
@@ -233,12 +245,14 @@ export const ChartVisualization = ({ selectedTable, dbId }: ChartVisualizationPr
             <p className="text-sm text-muted-foreground/70">Processing your data…</p>
           </div>
         ) : (
-          <ChartRenderer
-            chartType={chartType}
-            xAxis={xAxis}
-            yAxis={yAxis}
-            data={rowData}
-          />
+          <div key={`chart-${chartType}-${xAxis}-${yAxis}-${rowData.length}`}>
+            <ChartRenderer
+              chartType={chartType}
+              xAxis={xAxis}
+              yAxis={yAxis}
+              data={rowData}
+            />
+          </div>
         )}
       </div>
     </div>
