@@ -387,6 +387,35 @@ class BridgeApiService {
     }
   }
 
+  /**
+   * Create indexes for tables in the database
+   */
+  async createIndexes(params: {
+    dbId: string;
+    schemaName: string;
+    indexes: any[];
+  }): Promise<boolean> {
+    try {
+      if (!params.dbId || !params.schemaName) {
+        throw new Error("Database ID and schema name are required.");
+      }
+      if (!params.indexes || params.indexes.length === 0) {
+        throw new Error("At least one index is required.");
+      }
+
+      const result = await bridgeRequest("query.createIndexes", {
+        dbId: params.dbId,
+        schemaName: params.schemaName,
+        indexes: params.indexes,
+      });
+      console.log(result)
+      return result?.ok === true;
+    } catch (error: any) {
+      console.error("Failed to create indexes:", error);
+      throw new Error(`Failed to create indexes: ${error.message}`);
+    }
+  }
+
   // ------------------------------------
   // 4. BRIDGE UTILITY METHODS
   // ------------------------------------
