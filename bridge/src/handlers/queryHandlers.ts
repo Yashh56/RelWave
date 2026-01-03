@@ -10,7 +10,7 @@ export class QueryHandlers {
     private sessions: SessionManager,
     private dbService: DatabaseService,
     private queryExecutor: QueryExecutor
-  ) {}
+  ) { }
 
   async handleQueryRun(params: any, id: number | string) {
     const { sessionId, dbId, sql, batchSize = 200 } = params || {};
@@ -156,4 +156,44 @@ export class QueryHandlers {
       this.rpc.sendError(id, { code: "IO_ERROR", message: String(e) });
     }
   }
+
+  async handleCreateTable(params: any, id: number | string) {
+    try {
+      const { dbId, schemaName, tableName, columns } = params || {};
+      if (!dbId || !tableName || !schemaName) {
+        return this.rpc.sendError(id, {
+          code: "BAD_REQUEST",
+          message: "Missing dbId, schemaName, or tableName",
+        });
+      }
+      const { conn, dbType } = await this.dbService.getDatabaseConnection(dbId);
+
+      let result;
+      if (dbType === "mysql") {
+        result = await this.queryExecutor.mysql.createTable(
+          conn,
+          schemaName,
+          tableName,
+          columns
+        );
+        // Clear MySQL cache after table creation
+        this.queryExecutor.mysql.mysqlCache.clearForConnection(conn);
+      } else {
+        result = await this.queryExecutor.postgres.createTable(
+          conn,
+          schemaName,
+          tableName,
+          columns
+        );
+        // Clear PostgreSQL cache after table creation
+        this.queryExecutor.postgres.postgresCache.clearForConnection(conn);
+      }
+
+      this.rpc.sendResponse(id, { ok: true, result });
+    } catch (e: any) {
+      this.logger?.error({ e }, "createTable failed");
+      this.rpc.sendError(id, { code: "IO_ERROR", message: String(e) });
+    }
+  }
+
 }

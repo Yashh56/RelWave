@@ -49,7 +49,7 @@ const STALE_TIMES = {
 export function useDatabases() {
   const queryClient = useQueryClient();
   const bridgeReady = queryClient.getQueryData<boolean>(["bridge-ready"]) ?? isBridgeReady();
-  
+
   return useQuery({
     queryKey: queryKeys.databases,
     queryFn: () => bridgeApi.listDatabases(),
@@ -155,7 +155,7 @@ export function useSchemas(dbId: string | undefined) {
 export function useFullSchema(dbId: string | undefined) {
   const queryClient = useQueryClient();
   const bridgeReady = queryClient.getQueryData<boolean>(["bridge-ready"]) ?? isBridgeReady();
-  
+
   return useQuery({
     queryKey: ["fullSchema", dbId] as const,
     queryFn: () => bridgeApi.getSchema(dbId!),
@@ -339,6 +339,7 @@ export function useInvalidateCache() {
       queryClient.invalidateQueries({ queryKey: queryKeys.tables(dbId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.stats(dbId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.schemas(dbId) });
+      queryClient.invalidateQueries({ queryKey: ["fullSchema", dbId] }); // Also invalidate fullSchema
     },
 
     /** Invalidate table-specific caches */

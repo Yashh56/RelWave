@@ -183,3 +183,18 @@ export interface QueryProgress {
     rows: number;
     elapsed: number;
 }
+
+export interface CreateTableColumn {
+    name: string;
+    type: string;
+    not_nullable: boolean;
+    is_primary_key: boolean;
+    default_value?: string;
+}
+
+export interface CreateTableParams {
+    dbId: string;
+    schemaName: string;
+    tableName: string;
+    columns: CreateTableColumn[];
+}

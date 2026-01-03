@@ -30,13 +30,13 @@ export default function SchemaExplorer() {
     const { id: dbId } = useParams<{ id: string }>();
 
     // Use React Query for schema data (cached!)
-    const { 
-        data: schemaData, 
-        isLoading, 
+    const {
+        data: schemaData,
+        isLoading,
         error: queryError,
-        refetch 
+        refetch
     } = useFullSchema(dbId);
-    
+
     const { invalidateDatabase } = useInvalidateCache();
     const error = queryError ? (queryError as Error).message : null;
 
@@ -114,7 +114,15 @@ export default function SchemaExplorer() {
     // --- Main renderer ---
     return (
         <div className="min-h-screen bg-background flex flex-col text-foreground dark:bg-[#050505]">
-            <SchemaExplorerHeader dbId={dbId!} database={schemaData} />
+            <SchemaExplorerHeader
+                dbId={dbId!}
+                database={schemaData}
+                onTableCreated={() => {
+                    // Invalidate cache and refetch schema data
+                    if (dbId) invalidateDatabase(dbId);
+                    refetch();
+                }}
+            />
 
             <div className="flex-1 flex overflow-hidden">
                 <TreeViewPanel

@@ -78,6 +78,9 @@ export function registerDbHandlers(
   rpcRegister("query.listPrimaryKeys", (p, id) =>
     queryHandlers.handleFetchPrimaryKeys(p, id)
   );
+  rpcRegister("query.createTable", (p, id) =>
+    queryHandlers.handleCreateTable(p, id)
+  );
 
   // ==========================================
   // DATABASE CRUD HANDLERS

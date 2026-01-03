@@ -1,4 +1,4 @@
-import { AddDatabaseParams, ConnectionTestResult, DatabaseConnection, DatabaseSchemaDetails, DatabaseStats, RunQueryParams, TableRow, UpdateDatabaseParams } from "@/types/database";
+import { AddDatabaseParams, ColumnDetails, ConnectionTestResult, DatabaseConnection, DatabaseSchemaDetails, DatabaseStats, RunQueryParams, TableRow, UpdateDatabaseParams } from "@/types/database";
 import { bridgeRequest } from "./bridgeClient";
 
 
@@ -353,6 +353,31 @@ class BridgeApiService {
     } catch (error: any) {
       console.error("Failed to fetch primary keys:", error);
       throw new Error(`Failed to fetch primary keys: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create a new table in the database
+   */
+  async createTable(params: { dbId: string; schemaName: string; tableName: string; columns: ColumnDetails[] }): Promise<boolean> {
+    try {
+      if (!params.dbId || !params.schemaName || !params.tableName) {
+        throw new Error("Database ID, schema name, and table name are required.");
+      }
+      if (!params.columns || params.columns.length === 0) {
+        throw new Error("At least one column is required.");
+      }
+      const result = await bridgeRequest("query.createTable", {
+        dbId: params.dbId,
+        schemaName: params.schemaName,
+        tableName: params.tableName,
+        columns: params.columns,
+      });
+
+      return result?.ok === true;
+    } catch (error: any) {
+      console.error("Failed to create table:", error);
+      throw new Error(`Failed to create table: ${error.message}`);
     }
   }
 

@@ -1392,3 +1392,61 @@ export async function getTableDetails(
     throw err;
   }
 }
+function quoteIdent(name: string) {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+const PG_TYPE_MAP: Record<string, string> = {
+  INT: "INTEGER",
+  BIGINT: "BIGINT",
+  TEXT: "TEXT",
+  BOOLEAN: "BOOLEAN",
+  TIMESTAMP: "TIMESTAMP",
+  JSON: "JSONB",
+};
+
+export async function createTable(
+  conn: PGConfig,
+  schemaName: string,
+  tableName: string,
+  columns: ColumnDetail[]
+) {
+  const client = createClient(conn);
+
+  const primaryKeys = columns
+    .filter(c => c.is_primary_key)
+    .map(c => quoteIdent(c.name));
+
+  const columnDefs = columns.map(col => {
+    if (!PG_TYPE_MAP[col.type]) {
+      throw new Error(`Invalid type: ${col.type}`);
+    }
+
+    const parts = [
+      quoteIdent(col.name),
+      PG_TYPE_MAP[col.type],
+      col.not_nullable || col.is_primary_key ? "NOT NULL" : "",
+      col.default_value ? `DEFAULT ${col.default_value}` : ""
+    ].filter(Boolean);
+
+    return parts.join(" ");
+  });
+
+  if (primaryKeys.length > 0) {
+    columnDefs.push(`PRIMARY KEY (${primaryKeys.join(", ")})`);
+  }
+
+  const query = `
+    CREATE TABLE IF NOT EXISTS ${quoteIdent(schemaName)}.${quoteIdent(tableName)} (
+      ${columnDefs.join(",\n")}
+    );
+  `;
+
+  try {
+    await client.connect();
+    await client.query(query);
+    return true;
+  } finally {
+    await client.end();
+  }
+}

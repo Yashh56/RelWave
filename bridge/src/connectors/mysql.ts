@@ -193,13 +193,13 @@ class MySQLCacheManager {
   }
 
   // ============ CACHE MANAGEMENT ============
-  
+
   /**
    * Clear all caches for a specific database connection
    */
   clearForConnection(cfg: MySQLConfig): void {
     const configKey = this.getConfigKey(cfg);
-    
+
     // Clear all entries that start with this config key
     for (const [key] of this.tableListCache) {
       if (key.startsWith(configKey)) this.tableListCache.delete(key);
@@ -216,10 +216,10 @@ class MySQLCacheManager {
     for (const [key] of this.schemaMetadataBatchCache) {
       if (key.startsWith(configKey)) this.schemaMetadataBatchCache.delete(key);
     }
-    
+
     this.dbStatsCache.delete(configKey);
     this.schemasCache.delete(configKey);
-    
+
     console.log(`[MySQL Cache] Cleared all caches for ${configKey}`);
   }
 
@@ -497,7 +497,7 @@ export async function listPrimaryKeys(
     ]);
 
     const result = rows.map((row) => row.COLUMN_NAME as string);
-    
+
     // Cache the result
     mysqlCache.setPrimaryKeys(cfg, schemaName, tableName, result);
 
@@ -706,7 +706,7 @@ export async function getDBStats(cfg: MySQLConfig): Promise<{
     `;
 
     const [rows] = await connection.execute<RowDataPacket[]>(query);
-    
+
     const result = rows[0] as {
       total_tables: number;
       total_db_size_mb: number;
@@ -1301,5 +1301,63 @@ export async function getSchemaMetadataBatch(
     } catch (e) {
       // Ignore
     }
+  }
+}
+
+const TYPE_MAP: Record<string, string> = {
+  INT: "INT",
+  BIGINT: "BIGINT",
+  TEXT: "TEXT",
+  BOOLEAN: "BOOLEAN",
+  DATETIME: "DATETIME",
+  JSON: "JSON",
+};
+
+function quoteIdent(name: string) {
+  return `\`${name.replace(/`/g, "``")}\``;
+}
+
+export async function createTable(
+  conn: MySQLConfig,
+  schemaName: string,
+  tableName: string,
+  columns: ColumnDetail[]
+) {
+  const connection = await mysql.createPool(conn).getConnection();
+
+  const primaryKeys = columns
+    .filter(c => c.is_primary_key)
+    .map(c => quoteIdent(c.name));
+
+  const columnDefs = columns.map(col => {
+    if (!TYPE_MAP[col.type]) {
+      throw new Error(`Invalid type: ${col.type}`);
+    }
+
+    const parts = [
+      quoteIdent(col.name),
+      TYPE_MAP[col.type],
+      col.not_nullable || col.is_primary_key ? "NOT NULL" : "",
+      col.default_value ? `DEFAULT ${col.default_value}` : ""
+    ].filter(Boolean);
+
+    return parts.join(" ");
+  });
+
+  if (primaryKeys.length > 0) {
+    columnDefs.push(`PRIMARY KEY (${primaryKeys.join(", ")})`);
+  }
+
+  const query = `
+    CREATE TABLE IF NOT EXISTS ${quoteIdent(tableName)} (
+      ${columnDefs.join(",\n")}
+    );
+  `;
+
+  try {
+    await connection.query(query);
+    return true;
+  } finally {
+    connection.release();
   }
 }
