@@ -139,26 +139,25 @@ export default function AlterTableDialog({
         setIsSubmitting(true);
 
         try {
-            await bridgeApi.alterTable({
+            // Generate migration instead of altering table directly
+            const result = await bridgeApi.generateAlterMigration({
                 dbId,
                 schemaName,
                 tableName,
                 operations,
             });
 
-            toast.success("Table altered successfully", {
-                description: `Applied ${operations.length} operation(s) to table "${tableName}".`,
+            toast.success("Migration created successfully!", {
+                description: `Created migration file: ${result.filename}. Review and apply it in the Migrations panel.`,
             });
-
-            resetForm();
             onOpenChange(false);
 
             if (onSuccess) {
                 onSuccess();
             }
         } catch (error: any) {
-            console.error("Failed to alter table:", error);
-            toast.error("Failed to alter table", {
+            console.error("Failed to create migration:", error);
+            toast.error("Failed to create migration", {
                 description: error.message || "An unknown error occurred",
             });
         } finally {

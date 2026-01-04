@@ -71,6 +71,19 @@ export function useDatabase(id: string | undefined) {
   });
 }
 
+/**
+ * Fetch migrations data for a database
+ */
+export function useMigrations(dbId: string | undefined) {
+  return useQuery({
+    queryKey: ["migrations", dbId] as const,
+    queryFn: () => bridgeApi.getMigrations(dbId!),
+    enabled: !!dbId,
+    staleTime: 30 * 1000, // 30 seconds
+    gcTime: 5 * 60 * 1000,
+  });
+}
+
 // ============================================
 // Table Hooks
 // ============================================

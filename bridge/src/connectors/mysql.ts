@@ -4,6 +4,10 @@ import mysql, {
   RowDataPacket,
   PoolConnection,
 } from "mysql2/promise";
+import { loadLocalMigrations, writeBaselineMigration } from "../utils/baselineMigration";
+import crypto from "crypto";
+import fs from "fs";
+import { ensureDir, getMigrationsDir } from "../services/dbStore";
 
 export type MySQLConfig = {
   host: string;
@@ -1596,6 +1600,252 @@ export async function dropTable(
   } catch (err) {
     await connection.rollback();
     throw err;
+  } finally {
+    connection.release();
+    await pool.end();
+  }
+}
+
+export async function ensureMigrationTable(conn: MySQLConfig) {
+  const pool = mysql.createPool(conn);
+  const connection = await pool.getConnection();
+
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version VARCHAR(255) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      checksum VARCHAR(64) NOT NULL
+    ) ENGINE=InnoDB;
+  `);
+}
+
+
+export async function hasAnyMigrations(conn: MySQLConfig): Promise<boolean> {
+  const pool = mysql.createPool(conn);
+  const connection = await pool.getConnection();
+
+  const [rows] = await connection.query<any[]>(
+    `SELECT 1 FROM schema_migrations LIMIT 1;`
+  );
+  return rows.length > 0;
+}
+
+
+export async function insertBaseline(
+  conn: MySQLConfig,
+  version: string,
+  name: string,
+  checksum: string
+) {
+  const pool = mysql.createPool(conn);
+  const connection = await pool.getConnection();
+
+  await connection.query(
+    `
+    INSERT INTO schema_migrations (version, name, checksum)
+    VALUES (?, ?, ?);
+    `,
+    [version, name, checksum]
+  );
+}
+
+
+export async function baselineIfNeeded(
+  conn: MySQLConfig,
+  migrationsDir: string
+) {
+  try {
+    await ensureMigrationTable(conn);
+
+    const hasMigrations = await hasAnyMigrations(conn);
+    if (hasMigrations) return { baselined: false };
+
+    const version = Date.now().toString();
+    const name = "baseline_existing_schema";
+
+    const filePath = writeBaselineMigration(
+      migrationsDir,
+      version,
+      name
+    );
+
+    const checksum = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(filePath))
+      .digest("hex");
+
+    await insertBaseline(conn, version, name, checksum);
+
+    return { baselined: true, version };
+  } catch (err) {
+    throw err;
+  }
+}
+
+export type AppliedMigration = {
+  version: string;
+  name: string;
+  applied_at: string;
+  checksum: string;
+};
+
+export async function listAppliedMigrations(
+  cfg: MySQLConfig
+): Promise<AppliedMigration[]> {
+  const pool = mysql.createPool(cfg);
+  const connection = await pool.getConnection();
+
+  try {
+    // Check if schema_migrations table exists in current database
+    const [tables] = await connection.query<any[]>(
+      `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = DATABASE()
+        AND table_name = 'schema_migrations'
+      LIMIT 1;
+      `
+    );
+
+    if (tables.length === 0) {
+      return [];
+    }
+
+    const [rows] = await connection.query<any[]>(
+      `
+      SELECT
+        version,
+        name,
+        applied_at,
+        checksum
+      FROM schema_migrations
+      ORDER BY version ASC;
+      `
+    );
+
+    return rows as AppliedMigration[];
+  } finally {
+    connection.release();
+    await pool.end();
+  }
+}
+
+
+export async function connectToDatabase(
+  cfg: MySQLConfig,
+  connectionId: string,
+  options?: { readOnly?: boolean }
+) {
+  let baselineResult = { baselined: false };
+  const migrationsDir = getMigrationsDir(connectionId);
+  ensureDir(migrationsDir);
+  // 1️⃣ Baseline (ONLY if not read-only)
+  if (!options?.readOnly) {
+    baselineResult = await baselineIfNeeded(cfg, migrationsDir);
+  }
+
+  // 2️⃣ Load schema (read-only introspection)
+  const schema = await listSchemas(cfg);
+
+  // 3️⃣ Load local migrations from AppData
+  const localMigrations = await loadLocalMigrations(migrationsDir);
+
+  // 4️⃣ Load applied migrations from DB
+  const appliedMigrations = await listAppliedMigrations(cfg);
+
+  return {
+    baselined: baselineResult.baselined,
+    schema,
+    migrations: {
+      local: localMigrations,
+      applied: appliedMigrations
+    }
+  };
+}
+
+/**
+ * Apply a pending migration
+ */
+export async function applyMigration(
+  cfg: MySQLConfig,
+  migrationFilePath: string
+): Promise<boolean> {
+  const pool = mysql.createPool(cfg);
+  const connection = await pool.getConnection();
+
+  try {
+    // Read and parse migration file
+    const { readMigrationFile } = await import('../utils/migrationFileReader');
+    const migration = readMigrationFile(migrationFilePath);
+
+    // Begin transaction
+    await connection.beginTransaction();
+
+    // Execute up SQL
+    await connection.query(migration.upSQL);
+
+    // Record in schema_migrations
+    await connection.query(
+      `INSERT INTO schema_migrations (version, name, checksum)
+       VALUES (?, ?, ?)`,
+      [migration.version, migration.name, migration.checksum]
+    );
+
+    // Commit transaction
+    await connection.commit();
+
+    // Clear cache
+    mysqlCache.clearForConnection(cfg);
+
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+    await pool.end();
+  }
+}
+
+/**
+ * Rollback an applied migration
+ */
+export async function rollbackMigration(
+  cfg: MySQLConfig,
+  version: string,
+  migrationFilePath: string
+): Promise<boolean> {
+  const pool = mysql.createPool(cfg);
+  const connection = await pool.getConnection();
+
+  try {
+    // Read and parse migration file
+    const { readMigrationFile } = await import('../utils/migrationFileReader');
+    const migration = readMigrationFile(migrationFilePath);
+
+    // Begin transaction
+    await connection.beginTransaction();
+
+    // Execute down SQL
+    await connection.query(migration.downSQL);
+
+    // Remove from schema_migrations
+    await connection.query(
+      `DELETE FROM schema_migrations WHERE version = ?`,
+      [version]
+    );
+
+    // Commit transaction
+    await connection.commit();
+
+    // Clear cache
+    mysqlCache.clearForConnection(cfg);
+
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
   } finally {
     connection.release();
     await pool.end();

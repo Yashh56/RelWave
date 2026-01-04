@@ -2,6 +2,10 @@
 import { Client } from "pg";
 import QueryStream from "pg-query-stream";
 import { Readable } from "stream";
+import { loadLocalMigrations, writeBaselineMigration } from "../utils/baselineMigration";
+import crypto from "crypto";
+import fs from "fs";
+import { ensureDir, getMigrationsDir } from "../services/dbStore";
 
 export type PGConfig = {
   host: string;
@@ -1690,6 +1694,270 @@ export async function dropTable(
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function ensureMigrationTable(client: PGConfig) {
+  const connection = createClient(client)
+  try {
+    await connection.connect()
+    await connection.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TIMESTAMPTZ  NOT NULL DEFAULT now(),
+      checksum TEXT NOT NULL
+    );
+  `);
+  } catch (error) {
+    throw error;
+  } finally {
+    await connection.end();
+  }
+}
+
+export async function hasAnyMigrations(connection: PGConfig): Promise<boolean> {
+  const client = createClient(connection)
+
+  try {
+    await client.connect();
+    const { rows } = await client.query(
+      `SELECT 1 FROM schema_migrations LIMIT 1;`
+    );
+    return rows.length > 0;
+  } catch (error) {
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function insertBaseline(
+  conn: PGConfig,
+  version: string,
+  name: string,
+  checksum: string
+): Promise<boolean> {
+  const client = createClient(conn)
+  try {
+    await client.connect();
+    await client.query(
+      `
+      INSERT INTO schema_migrations (version, name, checksum)
+      VALUES ($1, $2, $3);
+      `,
+      [version, name, checksum]
+    );
+    return true;
+  } catch (error) {
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
+
+
+export async function baselineIfNeeded(
+  conn: PGConfig,
+  migrationsDir: string
+) {
+  const client = createClient(conn);
+
+  try {
+    await client.connect();
+    await ensureMigrationTable(client);
+
+    const hasMigrations = await hasAnyMigrations(client);
+    if (hasMigrations) return { baselined: false };
+
+    const version = Date.now().toString();
+    const name = "baseline_existing_schema";
+
+    const filePath = writeBaselineMigration(
+      migrationsDir,
+      version,
+      name
+    );
+
+    const checksum = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(filePath))
+      .digest("hex");
+
+    await insertBaseline(client, version, name, checksum);
+
+    return { baselined: true, version };
+  } finally {
+    await client.end();
+  }
+}
+
+export type AppliedMigration = {
+  version: string;
+  name: string;
+  applied_at: string;
+  checksum: string;
+};
+
+
+
+export async function listAppliedMigrations(
+  cfg: PGConfig,
+): Promise<AppliedMigration[]> {
+  const client = createClient(cfg);
+
+  try {
+    await client.connect();
+
+    // Important: table may not exist yet
+    const tableExists = await client.query(`
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_name = 'schema_migrations'
+      AND table_schema = current_schema()
+      LIMIT 1;
+    `);
+
+    if (tableExists.rowCount === 0) {
+      return [];
+    }
+
+    const res = await client.query(`
+      SELECT
+        version,
+        name,
+        applied_at,
+        checksum
+      FROM schema_migrations
+      ORDER BY version ASC;
+    `);
+
+    return res.rows as AppliedMigration[];
+  } finally {
+    await client.end();
+  }
+}
+
+
+
+export async function connectToDatabase(
+  cfg: PGConfig,
+  connectionId: string,
+  options?: { readOnly?: boolean }
+) {
+  // 1️⃣ Baseline (only if allowed)
+  let baselineResult = { baselined: false };
+  const migrationsDir = getMigrationsDir(connectionId);
+  ensureDir(migrationsDir);
+
+  if (!options?.readOnly) {
+    baselineResult = await baselineIfNeeded(cfg, migrationsDir);
+  }
+
+  // 2️⃣ Load schema (read-only)
+  const schema = await listSchemas(cfg);
+
+  // 3️⃣ Load local migrations from AppData
+  const localMigrations = await loadLocalMigrations(migrationsDir);
+
+  // 4️⃣ Load applied migrations from DB
+  const appliedMigrations = await listAppliedMigrations(cfg);
+
+  return {
+    baselined: baselineResult.baselined,
+    schema,
+    migrations: {
+      local: localMigrations,
+      applied: appliedMigrations
+    }
+  };
+}
+
+/**
+ * Apply a pending migration
+ */
+export async function applyMigration(
+  cfg: PGConfig,
+  migrationFilePath: string
+): Promise<boolean> {
+  const client = createClient(cfg);
+
+  try {
+    await client.connect();
+
+    // Read and parse migration file
+    const { readMigrationFile } = await import('../utils/migrationFileReader');
+    const migration = readMigrationFile(migrationFilePath);
+
+    // Begin transaction
+    await client.query('BEGIN');
+
+    // Execute up SQL
+    await client.query(migration.upSQL);
+
+    // Record in schema_migrations
+    await client.query(
+      `INSERT INTO schema_migrations (version, name, checksum)
+       VALUES ($1, $2, $3)`,
+      [migration.version, migration.name, migration.checksum]
+    );
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    // Clear cache
+    postgresCache.clearForConnection(cfg);
+
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * Rollback an applied migration
+ */
+export async function rollbackMigration(
+  cfg: PGConfig,
+  version: string,
+  migrationFilePath: string
+): Promise<boolean> {
+  const client = createClient(cfg);
+
+  try {
+    await client.connect();
+
+    // Read and parse migration file
+    const { readMigrationFile } = await import('../utils/migrationFileReader');
+    const migration = readMigrationFile(migrationFilePath);
+
+    // Begin transaction
+    await client.query('BEGIN');
+
+    // Execute down SQL
+    await client.query(migration.downSQL);
+
+    // Remove from schema_migrations
+    await client.query(
+      `DELETE FROM schema_migrations WHERE version = $1`,
+      [version]
+    );
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    // Clear cache
+    postgresCache.clearForConnection(cfg);
+
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
   } finally {
     await client.end();
   }

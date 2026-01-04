@@ -233,3 +233,21 @@ export type AlterTableOperation =
     | { type: "ALTER_TYPE"; column_name: string; new_type: string };
 
 export type DropMode = "RESTRICT" | "DETACH_FKS" | "CASCADE";
+
+// Migrations types
+export interface LocalMigration {
+    version: string;
+    name: string;
+}
+
+export interface AppliedMigration {
+    version: string;
+    name: string;
+    applied_at: string;
+    checksum: string;
+}
+
+export interface MigrationsData {
+    local: LocalMigration[];
+    applied: AppliedMigration[];
+}

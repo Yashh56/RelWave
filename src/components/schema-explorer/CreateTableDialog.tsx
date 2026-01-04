@@ -145,8 +145,8 @@ export default function CreateTableDialog({
                 source_schema: schemaName,
             }));
 
-            // Create the table with columns and foreign keys
-            await bridgeApi.createTable({
+            // Generate migration instead of creating table directly
+            const result = await bridgeApi.generateCreateMigration({
                 dbId,
                 schemaName,
                 tableName: tableName.trim(),
@@ -158,23 +158,22 @@ export default function CreateTableDialog({
                 foreignKeys: preparedForeignKeys,
             });
 
-            toast.success("Table created successfully", {
-                description: `Table "${tableName}" has been created in schema "${schemaName}".`,
+            toast.success("Migration created successfully!", {
+                description: `Created migration file: ${result.filename}. Review and apply it in the Migrations panel.`,
             });
 
-            // Store created table name and column names for indexes dialog
-            setCreatedTableName(tableName.trim());
-
-            // Close this dialog
+            // Close dialog and reset form
             resetForm();
             onOpenChange(false);
 
-            // Open indexes dialog
-            setShowIndexesDialog(true);
+            // Call success callback if provided
+            if (onSuccess) {
+                onSuccess();
+            }
 
         } catch (error: any) {
-            console.error("Failed to create table:", error);
-            toast.error("Failed to create table", {
+            console.error("Failed to create migration:", error);
+            toast.error("Failed to create migration", {
                 description: error.message || "An unknown error occurred",
             });
             setIsSubmitting(false);
@@ -233,10 +232,10 @@ export default function CreateTableDialog({
                             {isSubmitting ? (
                                 <>
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Creating...
+                                    Generating...
                                 </>
                             ) : (
-                                "Create Table"
+                                "Generate Migration"
                             )}
                         </Button>
                     </DialogFooter>

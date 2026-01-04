@@ -9,7 +9,7 @@ export class DatabaseHandlers {
     private logger: Logger,
     private dbService: DatabaseService,
     private queryExecutor: QueryExecutor
-  ) {}
+  ) { }
 
   async handleListDatabases(params: any, id: number | string) {
     try {

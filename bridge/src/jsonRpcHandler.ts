@@ -1,7 +1,3 @@
-// ----------------------------
-// jsonRpcHandlers.ts
-// ----------------------------
-
 import { Rpc } from "./types";
 import { SessionManager } from "./sessionManager";
 import { DatabaseService } from "./services/databaseService";
@@ -10,6 +6,7 @@ import { QueryHandlers } from "./handlers/queryHandlers";
 import { DatabaseHandlers } from "./handlers/databaseHandlers";
 import { SessionHandlers } from "./handlers/sessionHandlers";
 import { StatsHandlers } from "./handlers/statsHandlers";
+import { MigrationHandlers } from "./handlers/migrationHandlers";
 import { Logger } from "pino";
 
 /**
@@ -43,6 +40,12 @@ export function registerDbHandlers(
     queryExecutor
   );
   const statsHandlers = new StatsHandlers(
+    rpc,
+    logger,
+    dbService,
+    queryExecutor
+  );
+  const migrationHandlers = new MigrationHandlers(
     rpc,
     logger,
     dbService,
@@ -90,6 +93,9 @@ export function registerDbHandlers(
   rpcRegister("query.alterTable", (p, id) =>
     queryHandlers.handleAlterTable(p, id)
   );
+  rpcRegister("query.connectToDatabase", (p, id) =>
+    queryHandlers.connectToDatabase(p, id)
+  );
 
   // ==========================================
   // DATABASE CRUD HANDLERS
@@ -110,6 +116,31 @@ export function registerDbHandlers(
   );
   rpcRegister("db.getSchema", (p, id) =>
     databaseHandlers.handleGetSchema(p, id)
+  );
+
+  // ==========================================
+  // MIGRATION HANDLERS
+  // ==========================================
+  rpcRegister("migration.generateCreate", (p, id) =>
+    migrationHandlers.handleGenerateCreateMigration(p, id)
+  );
+  rpcRegister("migration.generateAlter", (p, id) =>
+    migrationHandlers.handleGenerateAlterMigration(p, id)
+  );
+  rpcRegister("migration.generateDrop", (p, id) =>
+    migrationHandlers.handleGenerateDropMigration(p, id)
+  );
+  rpcRegister("migration.apply", (p, id) =>
+    migrationHandlers.handleApplyMigration(p, id)
+  );
+  rpcRegister("migration.rollback", (p, id) =>
+    migrationHandlers.handleRollbackMigration(p, id)
+  );
+  rpcRegister("migration.delete", (p, id) =>
+    migrationHandlers.handleDeleteMigration(p, id)
+  );
+  rpcRegister("migration.getSQL", (p, id) =>
+    migrationHandlers.handleGetMigrationSQL(p, id)
   );
 
   // ==========================================

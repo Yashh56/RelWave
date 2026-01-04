@@ -308,4 +308,27 @@ export class QueryHandlers {
     }
   }
 
+  async connectToDatabase(params: any, id: number | string) {
+    try {
+      const { dbId } = params || {};
+      if (!dbId) {
+        return this.rpc.sendError(id, {
+          code: "BAD_REQUEST",
+          message: "Missing dbId",
+        });
+      }
+      let result;
+      const { conn, dbType } = await this.dbService.getDatabaseConnection(dbId);
+      if (dbType === "mysql") {
+        result = await this.queryExecutor.mysql.connectToDatabase(conn, dbId)
+      } else {
+        result = await this.queryExecutor.postgres.connectToDatabase(conn, dbId)
+      }
+      this.rpc.sendResponse(id, { ok: true, result });
+    } catch (e: any) {
+      this.logger?.error({ e }, "connectToDatabase failed");
+      this.rpc.sendError(id, { code: "IO_ERROR", message: String(e) });
+    }
+  }
+
 }
