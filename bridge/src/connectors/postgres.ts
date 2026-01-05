@@ -2,6 +2,10 @@
 import { Client } from "pg";
 import QueryStream from "pg-query-stream";
 import { Readable } from "stream";
+import { loadLocalMigrations, writeBaselineMigration } from "../utils/baselineMigration";
+import crypto from "crypto";
+import fs from "fs";
+import { ensureDir, getMigrationsDir } from "../services/dbStore";
 
 export type PGConfig = {
   host: string;
@@ -114,6 +118,7 @@ type SequenceInfo = {
   table_name: string | null;
   column_name: string | null;
 };
+
 
 /**
  * PostgreSQL Cache Manager - handles all caching for Postgres connector
@@ -1390,5 +1395,570 @@ export async function getTableDetails(
   } catch (err) {
     // ... (Error handling)
     throw err;
+  }
+}
+function quoteIdent(name: string) {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+const PG_TYPE_MAP: Record<string, string> = {
+  INT: "INTEGER",
+  BIGINT: "BIGINT",
+  TEXT: "TEXT",
+  BOOLEAN: "BOOLEAN",
+  TIMESTAMP: "TIMESTAMP",
+  JSON: "JSONB",
+};
+
+export async function createTable(
+  conn: PGConfig,
+  schemaName: string,
+  tableName: string,
+  columns: ColumnDetail[],
+  foreignKeys: ForeignKeyInfo[] = []
+) {
+  const client = createClient(conn);
+
+  const primaryKeys = columns
+    .filter(c => c.is_primary_key)
+    .map(c => quoteIdent(c.name));
+
+  const columnDefs = columns.map(col => {
+    if (!PG_TYPE_MAP[col.type]) {
+      throw new Error(`Invalid type: ${col.type}`);
+    }
+
+    const parts = [
+      quoteIdent(col.name),
+      PG_TYPE_MAP[col.type],
+      col.not_nullable || col.is_primary_key ? "NOT NULL" : "",
+      col.default_value ? `DEFAULT ${col.default_value}` : ""
+    ].filter(Boolean);
+
+    return parts.join(" ");
+  });
+
+  if (primaryKeys.length > 0) {
+    columnDefs.push(`PRIMARY KEY (${primaryKeys.join(", ")})`);
+  }
+
+  const createTableQuery = `
+    CREATE TABLE IF NOT EXISTS ${quoteIdent(schemaName)}.${quoteIdent(tableName)} (
+      ${columnDefs.join(",\n")}
+    );
+  `;
+
+  try {
+    await client.connect();
+    await client.query("BEGIN");
+
+    await client.query(createTableQuery);
+
+    for (const fk of foreignKeys) {
+      const fkQuery = `
+        ALTER TABLE ${quoteIdent(fk.source_schema)}.${quoteIdent(fk.source_table)}
+        ADD CONSTRAINT ${quoteIdent(fk.constraint_name)}
+        FOREIGN KEY (${quoteIdent(fk.source_column)})
+        REFERENCES ${quoteIdent(fk.target_schema)}.${quoteIdent(fk.target_table)}
+          (${quoteIdent(fk.target_column)})
+        ${fk.delete_rule ? `ON DELETE ${fk.delete_rule}` : ""}
+        ${fk.update_rule ? `ON UPDATE ${fk.update_rule}` : ""};
+      `;
+
+      await client.query(fkQuery);
+    }
+
+    await client.query("COMMIT");
+    return true;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    await client.end();
+  }
+}
+
+function groupIndexes(indexes: IndexInfo[]) {
+  const map = new Map<string, IndexInfo[]>();
+
+  for (const idx of indexes) {
+    if (!map.has(idx.index_name)) {
+      map.set(idx.index_name, []);
+    }
+    map.get(idx.index_name)!.push(idx);
+  }
+
+  return [...map.values()].map(group =>
+    group.sort((a, b) => a.ordinal_position - b.ordinal_position)
+  );
+}
+
+export async function createIndexes(
+  conn: PGConfig,
+  schemaName: string,
+  indexes: IndexInfo[]
+): Promise<Boolean> {
+  const client = createClient(conn);
+  const grouped = groupIndexes(indexes);
+  try {
+    await client.connect();
+
+    for (const group of grouped) {
+      const first = group[0];
+
+      // Skip PK indexes (already handled in CREATE TABLE)
+      if (first.is_primary) continue;
+
+      const columns = group.map(i => quoteIdent(i.column_name)).join(", ");
+
+      const query = `
+      CREATE ${first.is_unique ? "UNIQUE" : ""} INDEX IF NOT EXISTS
+      ${quoteIdent(first.index_name)}
+      ON ${quoteIdent(schemaName)}.${quoteIdent(first.table_name)}
+      USING ${first.index_type || "btree"}
+      (${columns})
+      ${first.predicate ? `WHERE ${first.predicate}` : ""};
+    `;
+
+      await client.query(query);
+    }
+
+    return true;
+  } catch (error) {
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
+
+type AlterTableOperation =
+  | { type: "ADD_COLUMN"; column: ColumnDetail }
+  | { type: "DROP_COLUMN"; column_name: string }
+  | { type: "RENAME_COLUMN"; from: string; to: string }
+  | { type: "SET_NOT_NULL"; column_name: string }
+  | { type: "DROP_NOT_NULL"; column_name: string }
+  | { type: "SET_DEFAULT"; column_name: string; default_value: string }
+  | { type: "DROP_DEFAULT"; column_name: string }
+  | { type: "ALTER_TYPE"; column_name: string; new_type: string };
+
+
+export async function alterTable(
+  conn: PGConfig,
+  schemaName: string,
+  tableName: string,
+  operations: AlterTableOperation[]
+): Promise<boolean> {
+  const client = createClient(conn);
+
+  try {
+    await client.connect();
+    await client.query("BEGIN");
+
+    for (const op of operations) {
+      let query = "";
+
+      switch (op.type) {
+        case "ADD_COLUMN":
+          query = `
+            ALTER TABLE ${quoteIdent(schemaName)}.${quoteIdent(tableName)}
+            ADD COLUMN ${quoteIdent(op.column.name)}
+            ${PG_TYPE_MAP[op.column.type]}
+            ${op.column.not_nullable ? "NOT NULL" : ""}
+            ${op.column.default_value ? `DEFAULT ${op.column.default_value}` : ""};
+          `;
+          break;
+
+        case "DROP_COLUMN":
+          query = `
+            ALTER TABLE ${quoteIdent(schemaName)}.${quoteIdent(tableName)}
+            DROP COLUMN ${quoteIdent(op.column_name)};
+          `;
+          break;
+
+        case "RENAME_COLUMN":
+          query = `
+            ALTER TABLE ${quoteIdent(schemaName)}.${quoteIdent(tableName)}
+            RENAME COLUMN ${quoteIdent(op.from)} TO ${quoteIdent(op.to)};
+          `;
+          break;
+
+        case "SET_NOT_NULL":
+          query = `
+            ALTER TABLE ${quoteIdent(schemaName)}.${quoteIdent(tableName)}
+            ALTER COLUMN ${quoteIdent(op.column_name)} SET NOT NULL;
+          `;
+          break;
+
+        case "DROP_NOT_NULL":
+          query = `
+            ALTER TABLE ${quoteIdent(schemaName)}.${quoteIdent(tableName)}
+            ALTER COLUMN ${quoteIdent(op.column_name)} DROP NOT NULL;
+          `;
+          break;
+
+        case "SET_DEFAULT":
+          query = `
+            ALTER TABLE ${quoteIdent(schemaName)}.${quoteIdent(tableName)}
+            ALTER COLUMN ${quoteIdent(op.column_name)}
+            SET DEFAULT ${op.default_value};
+          `;
+          break;
+
+        case "DROP_DEFAULT":
+          query = `
+            ALTER TABLE ${quoteIdent(schemaName)}.${quoteIdent(tableName)}
+            ALTER COLUMN ${quoteIdent(op.column_name)} DROP DEFAULT;
+          `;
+          break;
+
+        case "ALTER_TYPE":
+          query = `
+            ALTER TABLE ${quoteIdent(schemaName)}.${quoteIdent(tableName)}
+            ALTER COLUMN ${quoteIdent(op.column_name)}
+            TYPE ${PG_TYPE_MAP[op.new_type]};
+          `;
+          break;
+      }
+
+      await client.query(query);
+    }
+
+    await client.query("COMMIT");
+    return true;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    await client.end();
+  }
+}
+type DropMode =
+  | "RESTRICT"      // fail if dependencies exist
+  | "DETACH_FKS"    // drop dependent foreign keys first
+  | "CASCADE";      // explicit nuclear option
+
+
+export async function dropTable(
+  conn: PGConfig,
+  schemaName: string,
+  tableName: string,
+  mode: DropMode = "RESTRICT"
+): Promise<boolean> {
+  const client = createClient(conn);
+
+  try {
+    await client.connect();
+    await client.query("BEGIN");
+
+    if (mode !== "CASCADE") {
+      const { rows } = await client.query(
+        `
+        SELECT 
+          tc.constraint_name,
+          tc.table_schema,
+          tc.table_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.constraint_column_usage ccu
+          ON tc.constraint_name = ccu.constraint_name
+          AND tc.table_schema = ccu.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND ccu.table_schema = $1
+          AND ccu.table_name = $2;
+        `,
+        [schemaName, tableName]
+      );
+
+      if (rows.length > 0 && mode === "RESTRICT") {
+        throw new Error(
+          `Cannot drop table "${tableName}" — referenced by ${rows.length} foreign key(s)`
+        );
+      }
+
+      if (mode === "DETACH_FKS") {
+        for (const fk of rows) {
+          await client.query(`
+            ALTER TABLE ${quoteIdent(fk.table_schema)}.${quoteIdent(fk.table_name)}
+            DROP CONSTRAINT ${quoteIdent(fk.constraint_name)};
+          `);
+        }
+      }
+    }
+
+    await client.query(`
+      DROP TABLE ${quoteIdent(schemaName)}.${quoteIdent(tableName)}
+      ${mode === "CASCADE" ? "CASCADE" : "RESTRICT"};
+    `);
+
+    await client.query("COMMIT");
+    return true;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function ensureMigrationTable(client: PGConfig) {
+  const connection = createClient(client)
+  try {
+    await connection.connect()
+    await connection.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TIMESTAMPTZ  NOT NULL DEFAULT now(),
+      checksum TEXT NOT NULL
+    );
+  `);
+  } catch (error) {
+    throw error;
+  } finally {
+    await connection.end();
+  }
+}
+
+export async function hasAnyMigrations(connection: PGConfig): Promise<boolean> {
+  const client = createClient(connection)
+
+  try {
+    await client.connect();
+    const { rows } = await client.query(
+      `SELECT 1 FROM schema_migrations LIMIT 1;`
+    );
+    return rows.length > 0;
+  } catch (error) {
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function insertBaseline(
+  conn: PGConfig,
+  version: string,
+  name: string,
+  checksum: string
+): Promise<boolean> {
+  const client = createClient(conn)
+  try {
+    await client.connect();
+    await client.query(
+      `
+      INSERT INTO schema_migrations (version, name, checksum)
+      VALUES ($1, $2, $3);
+      `,
+      [version, name, checksum]
+    );
+    return true;
+  } catch (error) {
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
+
+
+export async function baselineIfNeeded(
+  conn: PGConfig,
+  migrationsDir: string
+) {
+  const client = createClient(conn);
+
+  try {
+    await client.connect();
+    await ensureMigrationTable(client);
+
+    const hasMigrations = await hasAnyMigrations(client);
+    if (hasMigrations) return { baselined: false };
+
+    const version = Date.now().toString();
+    const name = "baseline_existing_schema";
+
+    const filePath = writeBaselineMigration(
+      migrationsDir,
+      version,
+      name
+    );
+
+    const checksum = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(filePath))
+      .digest("hex");
+
+    await insertBaseline(client, version, name, checksum);
+
+    return { baselined: true, version };
+  } finally {
+    await client.end();
+  }
+}
+
+export type AppliedMigration = {
+  version: string;
+  name: string;
+  applied_at: string;
+  checksum: string;
+};
+
+
+
+export async function listAppliedMigrations(
+  cfg: PGConfig,
+): Promise<AppliedMigration[]> {
+  const client = createClient(cfg);
+
+  try {
+    await client.connect();
+
+    // Important: table may not exist yet
+    const tableExists = await client.query(`
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_name = 'schema_migrations'
+      AND table_schema = current_schema()
+      LIMIT 1;
+    `);
+
+    if (tableExists.rowCount === 0) {
+      return [];
+    }
+
+    const res = await client.query(`
+      SELECT
+        version,
+        name,
+        applied_at,
+        checksum
+      FROM schema_migrations
+      ORDER BY version ASC;
+    `);
+
+    return res.rows as AppliedMigration[];
+  } finally {
+    await client.end();
+  }
+}
+
+
+
+export async function connectToDatabase(
+  cfg: PGConfig,
+  connectionId: string,
+  options?: { readOnly?: boolean }
+) {
+  // 1️⃣ Baseline (only if allowed)
+  let baselineResult = { baselined: false };
+  const migrationsDir = getMigrationsDir(connectionId);
+  ensureDir(migrationsDir);
+
+  if (!options?.readOnly) {
+    baselineResult = await baselineIfNeeded(cfg, migrationsDir);
+  }
+
+  // 2️⃣ Load schema (read-only)
+  const schema = await listSchemas(cfg);
+
+  // 3️⃣ Load local migrations from AppData
+  const localMigrations = await loadLocalMigrations(migrationsDir);
+
+  // 4️⃣ Load applied migrations from DB
+  const appliedMigrations = await listAppliedMigrations(cfg);
+
+  return {
+    baselined: baselineResult.baselined,
+    schema,
+    migrations: {
+      local: localMigrations,
+      applied: appliedMigrations
+    }
+  };
+}
+
+/**
+ * Apply a pending migration
+ */
+export async function applyMigration(
+  cfg: PGConfig,
+  migrationFilePath: string
+): Promise<boolean> {
+  const client = createClient(cfg);
+
+  try {
+    await client.connect();
+
+    // Read and parse migration file
+    const { readMigrationFile } = await import('../utils/migrationFileReader');
+    const migration = readMigrationFile(migrationFilePath);
+
+    // Begin transaction
+    await client.query('BEGIN');
+
+    // Execute up SQL
+    await client.query(migration.upSQL);
+
+    // Record in schema_migrations
+    await client.query(
+      `INSERT INTO schema_migrations (version, name, checksum)
+       VALUES ($1, $2, $3)`,
+      [migration.version, migration.name, migration.checksum]
+    );
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    // Clear cache
+    postgresCache.clearForConnection(cfg);
+
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * Rollback an applied migration
+ */
+export async function rollbackMigration(
+  cfg: PGConfig,
+  version: string,
+  migrationFilePath: string
+): Promise<boolean> {
+  const client = createClient(cfg);
+
+  try {
+    await client.connect();
+
+    // Read and parse migration file
+    const { readMigrationFile } = await import('../utils/migrationFileReader');
+    const migration = readMigrationFile(migrationFilePath);
+
+    // Begin transaction
+    await client.query('BEGIN');
+
+    // Execute down SQL
+    await client.query(migration.downSQL);
+
+    // Remove from schema_migrations
+    await client.query(
+      `DELETE FROM schema_migrations WHERE version = $1`,
+      [version]
+    );
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    // Clear cache
+    postgresCache.clearForConnection(cfg);
+
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    await client.end();
   }
 }

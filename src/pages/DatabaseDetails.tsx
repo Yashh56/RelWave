@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useBridgeQuery } from "@/hooks/useBridgeQuery";
 import { useDatabaseDetails } from "@/hooks/useDatabaseDetails";
+import { useMigrations } from "@/hooks/useDbQueries";
 import { useExport } from "@/hooks/useExport";
 import BridgeLoader from "@/components/feedback/BridgeLoader";
 import { Spinner } from "@/components/ui/spinner";
@@ -11,6 +12,7 @@ import {
   DatabasePageHeader,
   TableSelector,
   QueryContentTabs,
+  MigrationsPanel,
 } from "@/components/database";
 
 const DatabaseDetail = () => {
@@ -50,6 +52,15 @@ const DatabaseDetail = () => {
     dbId: dbId || "",
     databaseName: databaseName || "database",
   });
+
+  // Fetch migrations data
+  const { data: migrationsResponse } = useMigrations(dbId);
+  console.log(migrationsResponse);
+  const migrationsData = migrationsResponse?.migrations || {
+    local: [],
+    applied: [],
+  };
+  const baselined = migrationsResponse?.baselined || false;
 
   if (bridgeLoading) {
     return <BridgeLoader />;
@@ -108,34 +119,42 @@ const DatabaseDetail = () => {
       />
 
       <div className="container mx-auto px-4 py-6">
-        <div className="space-y-4">
-          <div className="flex items-center justify-end">
-            <TableSelector
-              tables={tables}
+        <div className="flex gap-4">
+          {/* Main Content */}
+          <div className="flex-1 space-y-4">
+            <div className="flex items-center justify-end">
+              <TableSelector
+                tables={tables}
+                selectedTable={selectedTable}
+                loading={loading}
+                onTableSelect={handleTableSelect}
+              />
+            </div>
+
+            <QueryContentTabs
+              dbId={dbId || ""}
               selectedTable={selectedTable}
-              loading={loading}
-              onTableSelect={handleTableSelect}
+              isExecuting={isExecuting}
+              tableData={tableData}
+              rowCount={rowCount}
+              totalRows={totalRows}
+              currentPage={currentPage}
+              pageSize={pageSize}
+              query={query}
+              queryProgress={queryProgress}
+              queryError={queryError}
+              onQueryChange={setQuery}
+              onExecuteQuery={handleExecuteQuery}
+              onCancelQuery={handleCancelQuery}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
             />
           </div>
 
-          <QueryContentTabs
-            dbId={dbId || ""}
-            selectedTable={selectedTable}
-            isExecuting={isExecuting}
-            tableData={tableData}
-            rowCount={rowCount}
-            totalRows={totalRows}
-            currentPage={currentPage}
-            pageSize={pageSize}
-            query={query}
-            queryProgress={queryProgress}
-            queryError={queryError}
-            onQueryChange={setQuery}
-            onExecuteQuery={handleExecuteQuery}
-            onCancelQuery={handleCancelQuery}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
-          />
+          {/* Migrations Sidebar */}
+          <div className="w-80 shrink-0">
+            <MigrationsPanel migrations={migrationsData} baselined={baselined} dbId={dbId || ""} />
+          </div>
         </div>
       </div>
     </div>

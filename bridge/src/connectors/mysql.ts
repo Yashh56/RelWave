@@ -4,6 +4,10 @@ import mysql, {
   RowDataPacket,
   PoolConnection,
 } from "mysql2/promise";
+import { loadLocalMigrations, writeBaselineMigration } from "../utils/baselineMigration";
+import crypto from "crypto";
+import fs from "fs";
+import { ensureDir, getMigrationsDir } from "../services/dbStore";
 
 export type MySQLConfig = {
   host: string;
@@ -193,13 +197,13 @@ class MySQLCacheManager {
   }
 
   // ============ CACHE MANAGEMENT ============
-  
+
   /**
    * Clear all caches for a specific database connection
    */
   clearForConnection(cfg: MySQLConfig): void {
     const configKey = this.getConfigKey(cfg);
-    
+
     // Clear all entries that start with this config key
     for (const [key] of this.tableListCache) {
       if (key.startsWith(configKey)) this.tableListCache.delete(key);
@@ -216,10 +220,10 @@ class MySQLCacheManager {
     for (const [key] of this.schemaMetadataBatchCache) {
       if (key.startsWith(configKey)) this.schemaMetadataBatchCache.delete(key);
     }
-    
+
     this.dbStatsCache.delete(configKey);
     this.schemasCache.delete(configKey);
-    
+
     console.log(`[MySQL Cache] Cleared all caches for ${configKey}`);
   }
 
@@ -497,7 +501,7 @@ export async function listPrimaryKeys(
     ]);
 
     const result = rows.map((row) => row.COLUMN_NAME as string);
-    
+
     // Cache the result
     mysqlCache.setPrimaryKeys(cfg, schemaName, tableName, result);
 
@@ -706,7 +710,7 @@ export async function getDBStats(cfg: MySQLConfig): Promise<{
     `;
 
     const [rows] = await connection.execute<RowDataPacket[]>(query);
-    
+
     const result = rows[0] as {
       total_tables: number;
       total_db_size_mb: number;
@@ -1301,5 +1305,549 @@ export async function getSchemaMetadataBatch(
     } catch (e) {
       // Ignore
     }
+  }
+}
+
+const TYPE_MAP: Record<string, string> = {
+  INT: "INT",
+  BIGINT: "BIGINT",
+  TEXT: "TEXT",
+  BOOLEAN: "BOOLEAN",
+  DATETIME: "DATETIME",
+  TIMESTAMP: "TIMESTAMP",
+  JSON: "JSON",
+};
+
+function quoteIdent(name: string) {
+  return `\`${name.replace(/`/g, "``")}\``;
+}
+
+export async function createTable(
+  conn: MySQLConfig,
+  schemaName: string,
+  tableName: string,
+  columns: ColumnDetail[],
+  foreignKeys: ForeignKeyInfo[] = []
+) {
+  const connection = await mysql.createPool(conn).getConnection();
+
+  const primaryKeys = columns
+    .filter(c => c.is_primary_key)
+    .map(c => quoteIdent(c.name));
+
+  const columnDefs = columns.map(col => {
+    if (!TYPE_MAP[col.type]) {
+      throw new Error(`Invalid type: ${col.type}`);
+    }
+
+    const parts = [
+      quoteIdent(col.name),
+      TYPE_MAP[col.type],
+      col.not_nullable || col.is_primary_key ? "NOT NULL" : "",
+      col.default_value ? `DEFAULT ${col.default_value}` : ""
+    ].filter(Boolean);
+
+    return parts.join(" ");
+  });
+
+  if (primaryKeys.length > 0) {
+    columnDefs.push(`PRIMARY KEY (${primaryKeys.join(", ")})`);
+  }
+
+  const createTableQuery = `
+    CREATE TABLE IF NOT EXISTS ${quoteIdent(tableName)} (
+      ${columnDefs.join(",\n")}
+    ) ENGINE=InnoDB;
+  `;
+
+  try {
+    await connection.beginTransaction();
+
+    await connection.query(createTableQuery);
+
+    for (const fk of foreignKeys) {
+      const fkQuery = `
+    ALTER TABLE ${quoteIdent(fk.source_table)}
+    ADD CONSTRAINT ${quoteIdent(fk.constraint_name)}
+    FOREIGN KEY (${quoteIdent(fk.source_column)})
+    REFERENCES ${quoteIdent(fk.target_table)}
+      (${quoteIdent(fk.target_column)})
+    ${fk.delete_rule ? `ON DELETE ${fk.delete_rule}` : ""}
+    ${fk.update_rule ? `ON UPDATE ${fk.update_rule}` : ""};
+  `;
+      await connection.query(fkQuery);
+    }
+
+    await connection.commit();
+    return true;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+}
+
+function groupMySQLIndexes(indexes: IndexInfo[]) {
+  const map = new Map<string, IndexInfo[]>();
+
+  for (const idx of indexes) {
+    if (!map.has(idx.index_name)) {
+      map.set(idx.index_name, []);
+    }
+    map.get(idx.index_name)!.push(idx);
+  }
+
+  return [...map.values()].map(group =>
+    group.sort((a, b) => a.seq_in_index - b.seq_in_index)
+  );
+}
+
+
+export async function createIndexes(
+  conn: MySQLConfig,
+  indexes: IndexInfo[]
+): Promise<boolean> {
+  const pool = mysql.createPool(conn);
+  const groupedIndexes = groupMySQLIndexes(indexes);
+
+  try {
+    for (const group of groupedIndexes) {
+      const first = group[0];
+
+      // Skip primary key (handled during CREATE TABLE)
+      if (first.is_primary) continue;
+
+      const columns = group
+        .map(i => quoteIdent(i.column_name))
+        .join(", ");
+
+      const query = `
+        CREATE ${first.is_unique ? "UNIQUE" : ""} INDEX
+        ${quoteIdent(first.index_name)}
+        ON ${quoteIdent(first.table_name)}
+        (${columns})
+        USING ${first.index_type || "BTREE"};
+      `;
+
+      try {
+        await pool.query(query);
+      } catch (err: any) {
+        // Ignore duplicate index creation
+        if (err.code !== "ER_DUP_KEYNAME") {
+          throw err;
+        }
+      }
+    }
+
+    return true;
+  } finally {
+    await pool.end();
+  }
+}
+
+type AlterTableOperation =
+  | { type: "ADD_COLUMN"; column: ColumnDetail }
+  | { type: "DROP_COLUMN"; column_name: string }
+  | { type: "RENAME_COLUMN"; from: string; to: string }
+  | { type: "SET_NOT_NULL"; column_name: string; new_type: string }
+  | { type: "DROP_NOT_NULL"; column_name: string; new_type: string }
+  | { type: "SET_DEFAULT"; column_name: string; default_value: string }
+  | { type: "DROP_DEFAULT"; column_name: string }
+  | { type: "ALTER_TYPE"; column_name: string; new_type: string };
+
+
+
+export async function alterTable(
+  conn: MySQLConfig,
+  tableName: string,
+  operations: AlterTableOperation[]
+): Promise<boolean> {
+  const pool = mysql.createPool(conn);
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    for (const op of operations) {
+      let query = "";
+
+      switch (op.type) {
+        case "ADD_COLUMN":
+          query = `
+            ALTER TABLE ${quoteIdent(tableName)}
+            ADD COLUMN ${quoteIdent(op.column.name)}
+            ${TYPE_MAP[op.column.type]}
+            ${op.column.not_nullable ? "NOT NULL" : ""}
+            ${op.column.default_value ? `DEFAULT ${op.column.default_value}` : ""};
+          `;
+          break;
+
+        case "DROP_COLUMN":
+          query = `
+            ALTER TABLE ${quoteIdent(tableName)}
+            DROP COLUMN ${quoteIdent(op.column_name)};
+          `;
+          break;
+
+        case "RENAME_COLUMN":
+          query = `
+            ALTER TABLE ${quoteIdent(tableName)}
+            RENAME COLUMN ${quoteIdent(op.from)} TO ${quoteIdent(op.to)};
+          `;
+          break;
+
+        case "SET_NOT_NULL":
+          query = `
+            ALTER TABLE ${quoteIdent(tableName)}
+            MODIFY ${quoteIdent(op.column_name)} ${TYPE_MAP[op.new_type]} NOT NULL;
+          `;
+          break;
+
+        case "DROP_NOT_NULL":
+          query = `
+            ALTER TABLE ${quoteIdent(tableName)}
+            MODIFY ${quoteIdent(op.column_name)} ${TYPE_MAP[op.new_type]};
+          `;
+          break;
+
+        case "SET_DEFAULT":
+          query = `
+            ALTER TABLE ${quoteIdent(tableName)}
+            ALTER ${quoteIdent(op.column_name)}
+            SET DEFAULT ${op.default_value};
+          `;
+          break;
+
+        case "DROP_DEFAULT":
+          query = `
+            ALTER TABLE ${quoteIdent(tableName)}
+            ALTER ${quoteIdent(op.column_name)} DROP DEFAULT;
+          `;
+          break;
+
+        case "ALTER_TYPE":
+          query = `
+            ALTER TABLE ${quoteIdent(tableName)}
+            MODIFY ${quoteIdent(op.column_name)} ${TYPE_MAP[op.new_type]};
+          `;
+          break;
+      }
+
+      await connection.query(query);
+    }
+
+    await connection.commit();
+    return true;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+    await pool.end();
+  }
+}
+
+type DropMode =
+  | "RESTRICT"      // fail if dependencies exist
+  | "DETACH_FKS"    // drop dependent foreign keys first
+  | "CASCADE";      // explicit nuclear option
+
+export async function dropTable(
+  conn: MySQLConfig,
+  tableName: string,
+  mode: DropMode = "RESTRICT"
+): Promise<boolean> {
+  const pool = mysql.createPool(conn);
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    if (mode !== "CASCADE") {
+      const [rows] = await connection.query<any[]>(
+        `
+        SELECT CONSTRAINT_NAME, TABLE_NAME
+        FROM information_schema.KEY_COLUMN_USAGE
+        WHERE REFERENCED_TABLE_NAME = ?
+          AND REFERENCED_TABLE_SCHEMA = DATABASE();
+        `,
+        [tableName]
+      );
+
+      if (rows.length > 0 && mode === "RESTRICT") {
+        throw new Error(
+          `Cannot drop table "${tableName}" — referenced by ${rows.length} foreign key(s)`
+        );
+      }
+
+      if (mode === "DETACH_FKS") {
+        for (const fk of rows) {
+          await connection.query(`
+            ALTER TABLE ${quoteIdent(fk.TABLE_NAME)}
+            DROP FOREIGN KEY ${quoteIdent(fk.CONSTRAINT_NAME)};
+          `);
+        }
+      }
+    }
+
+    await connection.query(`
+      DROP TABLE IF EXISTS ${quoteIdent(tableName)};
+    `);
+
+    await connection.commit();
+    return true;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+    await pool.end();
+  }
+}
+
+export async function ensureMigrationTable(conn: MySQLConfig) {
+  const pool = mysql.createPool(conn);
+  const connection = await pool.getConnection();
+
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version VARCHAR(14) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      checksum VARCHAR(64) NOT NULL
+    ) ENGINE=InnoDB;
+  `);
+}
+
+
+export async function hasAnyMigrations(conn: MySQLConfig): Promise<boolean> {
+  const pool = mysql.createPool(conn);
+  const connection = await pool.getConnection();
+
+  const [rows] = await connection.query<any[]>(
+    `SELECT 1 FROM schema_migrations LIMIT 1;`
+  );
+  return rows.length > 0;
+}
+
+
+export async function insertBaseline(
+  conn: MySQLConfig,
+  version: string,
+  name: string,
+  checksum: string
+) {
+  const pool = mysql.createPool(conn);
+  const connection = await pool.getConnection();
+
+  await connection.query(
+    `
+    INSERT INTO schema_migrations (version, name, checksum)
+    VALUES (?, ?, ?);
+    `,
+    [version, name, checksum]
+  );
+}
+
+
+export async function baselineIfNeeded(
+  conn: MySQLConfig,
+  migrationsDir: string
+) {
+  try {
+    await ensureMigrationTable(conn);
+
+    const hasMigrations = await hasAnyMigrations(conn);
+    if (hasMigrations) return { baselined: false };
+
+    const version = Date.now().toString();
+    const name = "baseline_existing_schema";
+
+    const filePath = writeBaselineMigration(
+      migrationsDir,
+      version,
+      name
+    );
+
+    const checksum = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(filePath))
+      .digest("hex");
+
+    await insertBaseline(conn, version, name, checksum);
+
+    return { baselined: true, version };
+  } catch (err) {
+    throw err;
+  }
+}
+
+export type AppliedMigration = {
+  version: string;
+  name: string;
+  applied_at: string;
+  checksum: string;
+};
+
+export async function listAppliedMigrations(
+  cfg: MySQLConfig
+): Promise<AppliedMigration[]> {
+  const pool = mysql.createPool(cfg);
+  const connection = await pool.getConnection();
+
+  try {
+    // Check if schema_migrations table exists in current database
+    const [tables] = await connection.query<any[]>(
+      `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = DATABASE()
+        AND table_name = 'schema_migrations'
+      LIMIT 1;
+      `
+    );
+
+    if (tables.length === 0) {
+      return [];
+    }
+
+    const [rows] = await connection.query<any[]>(
+      `
+      SELECT
+        version,
+        name,
+        applied_at,
+        checksum
+      FROM schema_migrations
+      ORDER BY version ASC;
+      `
+    );
+
+    return rows as AppliedMigration[];
+  } finally {
+    connection.release();
+    await pool.end();
+  }
+}
+
+
+export async function connectToDatabase(
+  cfg: MySQLConfig,
+  connectionId: string,
+  options?: { readOnly?: boolean }
+) {
+  let baselineResult = { baselined: false };
+  const migrationsDir = getMigrationsDir(connectionId);
+  ensureDir(migrationsDir);
+  // 1️⃣ Baseline (ONLY if not read-only)
+  if (!options?.readOnly) {
+    baselineResult = await baselineIfNeeded(cfg, migrationsDir);
+  }
+
+  // 2️⃣ Load schema (read-only introspection)
+  const schema = await listSchemas(cfg);
+
+  // 3️⃣ Load local migrations from AppData
+  const localMigrations = await loadLocalMigrations(migrationsDir);
+
+  // 4️⃣ Load applied migrations from DB
+  const appliedMigrations = await listAppliedMigrations(cfg);
+
+  return {
+    baselined: baselineResult.baselined,
+    schema,
+    migrations: {
+      local: localMigrations,
+      applied: appliedMigrations
+    }
+  };
+}
+
+/**
+ * Apply a pending migration
+ */
+export async function applyMigration(
+  cfg: MySQLConfig,
+  migrationFilePath: string
+): Promise<boolean> {
+  const pool = mysql.createPool(cfg);
+  const connection = await pool.getConnection();
+
+  try {
+    // Read and parse migration file
+    const { readMigrationFile } = await import('../utils/migrationFileReader');
+    const migration = readMigrationFile(migrationFilePath);
+
+    // Begin transaction
+    await connection.beginTransaction();
+
+    // Execute up SQL
+    await connection.query(migration.upSQL);
+
+    // Record in schema_migrations
+    await connection.query(
+      `INSERT INTO schema_migrations (version, name, checksum)
+       VALUES (?, ?, ?)`,
+      [migration.version, migration.name, migration.checksum]
+    );
+
+    // Commit transaction
+    await connection.commit();
+
+    // Clear cache
+    mysqlCache.clearForConnection(cfg);
+
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+    await pool.end();
+  }
+}
+
+/**
+ * Rollback an applied migration
+ */
+export async function rollbackMigration(
+  cfg: MySQLConfig,
+  version: string,
+  migrationFilePath: string
+): Promise<boolean> {
+  const pool = mysql.createPool(cfg);
+  const connection = await pool.getConnection();
+
+  try {
+    // Read and parse migration file
+    const { readMigrationFile } = await import('../utils/migrationFileReader');
+    const migration = readMigrationFile(migrationFilePath);
+
+    // Begin transaction
+    await connection.beginTransaction();
+
+    // Execute down SQL
+    await connection.query(migration.downSQL);
+
+    // Remove from schema_migrations
+    await connection.query(
+      `DELETE FROM schema_migrations WHERE version = ?`,
+      [version]
+    );
+
+    // Commit transaction
+    await connection.commit();
+
+    // Clear cache
+    mysqlCache.clearForConnection(cfg);
+
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+    await pool.end();
   }
 }

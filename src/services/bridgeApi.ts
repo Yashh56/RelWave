@@ -1,4 +1,4 @@
-import { AddDatabaseParams, ConnectionTestResult, DatabaseConnection, DatabaseSchemaDetails, DatabaseStats, RunQueryParams, TableRow, UpdateDatabaseParams } from "@/types/database";
+import { AddDatabaseParams, ColumnDetails, ConnectionTestResult, CreateTableColumn, DatabaseConnection, DatabaseSchemaDetails, DatabaseStats, RunQueryParams, TableRow, UpdateDatabaseParams } from "@/types/database";
 import { bridgeRequest } from "./bridgeClient";
 
 
@@ -135,6 +135,20 @@ class BridgeApiService {
     } catch (error: any) {
       console.error("Failed to get database:", error);
       throw new Error(`Failed to get database: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get migrations data for a database
+   */
+  async getMigrations(id: string): Promise<{ migrations: { local: any[]; applied: any[] }; baselined: boolean } | null> {
+    try {
+      const result = await bridgeRequest("query.connectToDatabase", { dbId: id });
+      console.log(result)
+      return result?.result || null;
+    } catch (error: any) {
+      console.error("Failed to get migrations:", error);
+      throw new Error(`Failed to get migrations: ${error.message}`);
     }
   }
 
@@ -353,6 +367,236 @@ class BridgeApiService {
     } catch (error: any) {
       console.error("Failed to fetch primary keys:", error);
       throw new Error(`Failed to fetch primary keys: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create a new table in the database
+   */
+  async createTable(params: {
+    dbId: string;
+    schemaName: string;
+    tableName: string;
+    columns: CreateTableColumn[];
+    foreignKeys?: any[];
+  }): Promise<boolean> {
+    try {
+      if (!params.dbId || !params.schemaName || !params.tableName) {
+        throw new Error("Database ID, schema name, and table name are required.");
+      }
+      if (!params.columns || params.columns.length === 0) {
+        throw new Error("At least one column is required.");
+      }
+      const result = await bridgeRequest("query.createTable", {
+        dbId: params.dbId,
+        schemaName: params.schemaName,
+        tableName: params.tableName,
+        columns: params.columns,
+        foreignKeys: params.foreignKeys || [],
+      });
+      return result?.ok === true;
+    } catch (error: any) {
+      console.error("Failed to create table:", error);
+      throw new Error(`Failed to create table: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create indexes for tables in the database
+   */
+  async createIndexes(params: {
+    dbId: string;
+    schemaName: string;
+    indexes: any[];
+  }): Promise<boolean> {
+    try {
+      if (!params.dbId || !params.schemaName) {
+        throw new Error("Database ID and schema name are required.");
+      }
+      if (!params.indexes || params.indexes.length === 0) {
+        throw new Error("At least one index is required.");
+      }
+
+      const result = await bridgeRequest("query.createIndexes", {
+        dbId: params.dbId,
+        schemaName: params.schemaName,
+        indexes: params.indexes,
+      });
+      console.log(result)
+      return result?.ok === true;
+    } catch (error: any) {
+      console.error("Failed to create indexes:", error);
+      throw new Error(`Failed to create indexes: ${error.message}`);
+    }
+  }
+
+  /**
+   * Alter table structure
+   */
+  async alterTable(params: {
+    dbId: string;
+    schemaName: string;
+    tableName: string;
+    operations: any[];
+  }): Promise<boolean> {
+    try {
+      if (!params.dbId || !params.schemaName || !params.tableName) {
+        throw new Error("Database ID, schema name, and table name are required.");
+      }
+      if (!params.operations || params.operations.length === 0) {
+        throw new Error("At least one operation is required.");
+      }
+
+      const result = await bridgeRequest("query.alterTable", {
+        dbId: params.dbId,
+        schemaName: params.schemaName,
+        tableName: params.tableName,
+        operations: params.operations,
+      });
+
+      return result?.ok === true;
+    } catch (error: any) {
+      console.error("Failed to alter table:", error);
+      throw new Error(`Failed to alter table: ${error.message}`);
+    }
+  }
+
+  /**
+   * Drop a table
+   */
+  async dropTable(params: {
+    dbId: string;
+    schemaName: string;
+    tableName: string;
+    mode?: "RESTRICT" | "DETACH_FKS" | "CASCADE";
+  }): Promise<boolean> {
+    try {
+      if (!params.dbId || !params.schemaName || !params.tableName) {
+        throw new Error("Database ID, schema name, and table name are required.");
+      }
+
+      const result = await bridgeRequest("query.dropTable", {
+        dbId: params.dbId,
+        schemaName: params.schemaName,
+        tableName: params.tableName,
+        mode: params.mode || "RESTRICT",
+      });
+
+      return result?.ok === true;
+    } catch (error: any) {
+      console.error("Failed to drop table:", error);
+      throw new Error(`Failed to drop table: ${error.message}`);
+    }
+  }
+
+  // ------------------------------------
+  // MIGRATION METHODS
+  // ------------------------------------
+
+  /**
+   * Generate CREATE TABLE migration file
+   */
+  async generateCreateMigration(params: {
+    dbId: string;
+    schemaName: string;
+    tableName: string;
+    columns: any[];
+    foreignKeys?: any[];
+  }): Promise<{ version: string; filename: string; filepath: string }> {
+    try {
+      const result = await bridgeRequest("migration.generateCreate", params);
+      return result?.data;
+    } catch (error: any) {
+      console.error("Failed to generate create migration:", error);
+      throw new Error(`Failed to generate migration: ${error.message}`);
+    }
+  }
+
+  /**
+   * Generate ALTER TABLE migration file
+   */
+  async generateAlterMigration(params: {
+    dbId: string;
+    schemaName: string;
+    tableName: string;
+    operations: any[];
+  }): Promise<{ version: string; filename: string; filepath: string }> {
+    try {
+      const result = await bridgeRequest("migration.generateAlter", params);
+      return result?.data;
+    } catch (error: any) {
+      console.error("Failed to generate alter migration:", error);
+      throw new Error(`Failed to generate migration: ${error.message}`);
+    }
+  }
+
+  /**
+   * Generate DROP TABLE migration file
+   */
+  async generateDropMigration(params: {
+    dbId: string;
+    schemaName: string;
+    tableName: string;
+    mode?: "RESTRICT" | "DETACH_FKS" | "CASCADE";
+  }): Promise<{ version: string; filename: string; filepath: string }> {
+    try {
+      const result = await bridgeRequest("migration.generateDrop", params);
+      return result?.data;
+    } catch (error: any) {
+      console.error("Failed to generate drop migration:", error);
+      throw new Error(`Failed to generate migration: ${error.message}`);
+    }
+  }
+
+  /**
+   * Apply a pending migration
+   */
+  async applyMigration(dbId: string, version: string): Promise<boolean> {
+    try {
+      const result = await bridgeRequest("migration.apply", { dbId, version });
+      return result?.ok === true;
+    } catch (error: any) {
+      console.error("Failed to apply migration:", error);
+      throw new Error(`Failed to apply migration: ${error.message}`);
+    }
+  }
+
+  /**
+   * Rollback an applied migration
+   */
+  async rollbackMigration(dbId: string, version: string): Promise<boolean> {
+    try {
+      const result = await bridgeRequest("migration.rollback", { dbId, version });
+      return result?.ok === true;
+    } catch (error: any) {
+      console.error("Failed to rollback migration:", error);
+      throw new Error(`Failed to rollback migration: ${error.message}`);
+    }
+  }
+
+  /**
+   * Delete a pending migration file
+   */
+  async deleteMigration(dbId: string, version: string): Promise<boolean> {
+    try {
+      const result = await bridgeRequest("migration.delete", { dbId, version });
+      return result?.ok === true;
+    } catch (error: any) {
+      console.error("Failed to delete migration:", error);
+      throw new Error(`Failed to delete migration: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get migration SQL (up and down)
+   */
+  async getMigrationSQL(dbId: string, version: string): Promise<{ up: string; down: string }> {
+    try {
+      const result = await bridgeRequest("migration.getSQL", { dbId, version });
+      return result?.data;
+    } catch (error: any) {
+      console.error("Failed to get migration SQL:", error);
+      throw new Error(`Failed to get migration SQL: ${error.message}`);
     }
   }
 
