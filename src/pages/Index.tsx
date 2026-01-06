@@ -185,7 +185,8 @@ const Index = () => {
   });
 
   // --- Render based on bridge state ---
-  if (bridgeLoading) return <BridgeLoader />;
+  // Show loader if bridge is loading OR if bridgeReady is undefined (initial state)
+  if (bridgeLoading || bridgeReady === undefined) return <BridgeLoader />;
   if (!bridgeReady) return <BridgeFailed />;
 
   return (

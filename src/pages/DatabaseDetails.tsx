@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { RefreshCw, Download, FileText } from "lucide-react";
+import { RefreshCw, Download, FileText, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useBridgeQuery } from "@/hooks/useBridgeQuery";
 import { useDatabaseDetails } from "@/hooks/useDatabaseDetails";
@@ -67,7 +73,8 @@ const DatabaseDetail = () => {
   };
   const baselined = migrationsResponse?.baselined || false;
 
-  if (bridgeLoading) {
+  // Show loader during bridge loading or initial undefined state
+  if (bridgeLoading || bridgeReady === undefined) {
     return <BridgeLoader />;
   }
 
@@ -131,25 +138,39 @@ const DatabaseDetail = () => {
                 <FileText className="h-3.5 w-3.5 mr-1.5" />
                 Migrations
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => exportAllTables()}
-                disabled={isExporting}
-                className="text-xs"
-              >
-                {isExporting ? (
-                  <>
-                    <Spinner className="h-3.5 w-3.5 mr-1.5" />
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <Download className="h-3.5 w-3.5 mr-1.5" />
-                    Export All
-                  </>
-                )}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isExporting}
+                    className="text-xs"
+                  >
+                    {isExporting ? (
+                      <>
+                        <Spinner className="h-3.5 w-3.5 mr-1.5" />
+                        Exporting...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-3.5 w-3.5 mr-1.5" />
+                        Export All
+                        <ChevronDown className="h-3 w-3 ml-1" />
+                      </>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => exportAllTables("csv")}>
+                    <FileText className="h-3.5 w-3.5 mr-2" />
+                    Export as CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => exportAllTables("json")}>
+                    <FileText className="h-3.5 w-3.5 mr-2" />
+                    Export as JSON
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button
                 size="sm"
                 variant="outline"
