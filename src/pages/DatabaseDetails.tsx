@@ -23,7 +23,11 @@ import ExpandableBottomPanel from "@/components/database/ExpandableBottomPanel";
 import { MigrationsPanel } from "@/components/database";
 import SqlEditor from "@/components/database/SqlEditor";
 import InsertDataDialog from "@/components/database/InsertDataDialog";
+import EditRowDialog from "@/components/database/EditRowDialog";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { ChartVisualization } from "@/components/chart/ChartVisualization";
+import { bridgeApi } from "@/services/bridgeApi";
+import { toast } from "sonner";
 
 const DatabaseDetail = () => {
   const { id: dbId } = useParams<{ id: string }>();
@@ -32,6 +36,14 @@ const DatabaseDetail = () => {
   const [migrationsOpen, setMigrationsOpen] = useState(false);
   const [chartOpen, setChartOpen] = useState(false);
   const [insertDialogOpen, setInsertDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingRow, setEditingRow] = useState<Record<string, any> | null>(null);
+  const [primaryKeyColumn, setPrimaryKeyColumn] = useState<string>("");
+  // Delete confirmation state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingRow, setDeletingRow] = useState<Record<string, any> | null>(null);
+  const [deleteRowPK, setDeleteRowPK] = useState<string>("");
+  const [deleteHasPK, setDeleteHasPK] = useState(false);
 
   const {
     databaseName,
@@ -214,6 +226,58 @@ const DatabaseDetail = () => {
             onPageSizeChange={handlePageSizeChange}
             onChart={() => setChartOpen(true)}
             onInsert={() => setInsertDialogOpen(true)}
+            onEditRow={async (row) => {
+              // Fetch primary key for this table (may be empty)
+              try {
+                let pk = "";
+                try {
+                  pk = await bridgeApi.getPrimaryKeys(
+                    dbId || "",
+                    selectedTable?.schema || "public",
+                    selectedTable?.name || ""
+                  );
+                } catch {
+                  // No PK found - will use first column as identifier
+                  pk = Object.keys(row)[0] || "";
+                }
+                setPrimaryKeyColumn(pk);
+                setEditingRow(row);
+                setEditDialogOpen(true);
+              } catch (err: any) {
+                toast.error("Cannot edit: " + (err.message || "Unknown error"));
+              }
+            }}
+            onDeleteRow={async (row) => {
+              try {
+                let pk = "";
+                let hasPK = false;
+                try {
+                  pk = await bridgeApi.getPrimaryKeys(
+                    dbId || "",
+                    selectedTable?.schema || "public",
+                    selectedTable?.name || ""
+                  );
+                  hasPK = !!pk;
+                } catch {
+                  hasPK = false;
+                }
+
+                let confirmMsg: string;
+                if (hasPK) {
+                  confirmMsg = `Delete row with ${pk} = ${row[pk]}?`;
+                } else {
+                  confirmMsg = `Delete this row? (Table has no primary key - using all columns to identify)`;
+                }
+
+                // Store delete info and open confirm dialog
+                setDeletingRow(row);
+                setDeleteRowPK(pk);
+                setDeleteHasPK(hasPK);
+                setDeleteDialogOpen(true);
+              } catch (err: any) {
+                toast.error(err.message || "Failed to prepare delete");
+              }
+            }}
           />
         </div>
 
@@ -298,6 +362,61 @@ const DatabaseDetail = () => {
           }}
         />
       )}
+
+      {/* Edit Row Dialog */}
+      {selectedTable && editingRow && (
+        <EditRowDialog
+          open={editDialogOpen}
+          onOpenChange={(open) => {
+            setEditDialogOpen(open);
+            if (!open) setEditingRow(null);
+          }}
+          dbId={dbId || ""}
+          schemaName={selectedTable.schema || "public"}
+          tableName={selectedTable.name}
+          primaryKeyColumn={primaryKeyColumn}
+          rowData={editingRow}
+          onSuccess={() => {
+            refetchTableData();
+          }}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setDeletingRow(null);
+        }}
+        title="Delete Row"
+        description={
+          deleteHasPK
+            ? `Are you sure you want to delete the row with ${deleteRowPK} = ${deletingRow?.[deleteRowPK]}?`
+            : "Are you sure you want to delete this row? (Table has no primary key - using all columns to identify)"
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="destructive"
+        onConfirm={async () => {
+          if (!deletingRow || !selectedTable) return;
+          try {
+            await bridgeApi.deleteRow({
+              dbId: dbId || "",
+              schemaName: selectedTable.schema || "public",
+              tableName: selectedTable.name,
+              primaryKeyColumn: deleteHasPK ? deleteRowPK : "",
+              primaryKeyValue: deleteHasPK ? deletingRow[deleteRowPK] : deletingRow,
+            });
+            toast.success("Row deleted successfully");
+            refetchTableData();
+            setDeleteDialogOpen(false);
+            setDeletingRow(null);
+          } catch (err: any) {
+            toast.error(err.message || "Failed to delete row");
+          }
+        }}
+      />
     </div>
   );
 };
