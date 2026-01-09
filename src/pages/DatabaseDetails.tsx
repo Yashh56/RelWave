@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
-import { RefreshCw, Download, FileText, ChevronDown } from "lucide-react";
+import { useParams, Link } from "react-router-dom";
+import { RefreshCw, Download, FileText, ChevronDown, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -19,9 +19,7 @@ import VerticalIconBar from "@/components/common/VerticalIconBar";
 import SlideOutPanel from "@/components/common/SlideOutPanel";
 import TablesExplorerPanel from "@/components/database/TablesExplorerPanel";
 import ContentViewerPanel from "@/components/database/ContentViewerPanel";
-import ExpandableBottomPanel from "@/components/database/ExpandableBottomPanel";
 import { MigrationsPanel } from "@/components/database";
-import SqlEditor from "@/components/database/SqlEditor";
 import InsertDataDialog from "@/components/database/InsertDataDialog";
 import EditRowDialog from "@/components/database/EditRowDialog";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
@@ -32,7 +30,6 @@ import { toast } from "sonner";
 const DatabaseDetail = () => {
   const { id: dbId } = useParams<{ id: string }>();
   const { data: bridgeReady, isLoading: bridgeLoading } = useBridgeQuery();
-  const [sqlExpanded, setSqlExpanded] = useState(false);
   const [migrationsOpen, setMigrationsOpen] = useState(false);
   const [chartOpen, setChartOpen] = useState(false);
   const [insertDialogOpen, setInsertDialogOpen] = useState(false);
@@ -56,21 +53,13 @@ const DatabaseDetail = () => {
     tables,
     selectedTable,
     tableData,
-    rowCount,
     totalRows,
     currentPage,
     pageSize,
-    query,
-    queryProgress,
-    queryError,
-    isExecuting,
     loading,
     loadingTables,
     error,
-    setQuery,
     handleTableSelect,
-    handleExecuteQuery,
-    handleCancelQuery,
     fetchTables,
     handlePageChange,
     handlePageSizeChange,
@@ -150,6 +139,16 @@ const DatabaseDetail = () => {
             </div>
 
             <div className="flex items-center gap-2">
+              <Link to={`/database/${dbId}/sql-workspace`}>
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="text-xs"
+                >
+                  <Terminal className="h-3.5 w-3.5 mr-1.5" />
+                  SQL Workspace
+                </Button>
+              </Link>
               <Button
                 size="sm"
                 variant="outline"
@@ -359,41 +358,6 @@ const DatabaseDetail = () => {
             }}
           />
         </div>
-
-        {/* Bottom Panel: SQL Workspace */}
-        <ExpandableBottomPanel
-          isExpanded={sqlExpanded}
-          onToggle={() => setSqlExpanded(!sqlExpanded)}
-          title="SQL Workspace"
-        >
-          <div className="h-full p-4 flex flex-col gap-2">
-            <SqlEditor
-              value={query}
-              onChange={setQuery}
-            />
-            <div className="flex items-center justify-between">
-              <div className="text-xs text-muted-foreground">
-                {isExecuting && queryProgress && (
-                  <span>Retrieved {queryProgress.rows.toLocaleString()} rows in {queryProgress.elapsed}s...</span>
-                )}
-                {queryError && (
-                  <span className="text-destructive">{queryError}</span>
-                )}
-              </div>
-              <div className="flex gap-2">
-                {isExecuting ? (
-                  <Button size="sm" variant="destructive" onClick={handleCancelQuery} className="text-xs">
-                    Cancel
-                  </Button>
-                ) : (
-                  <Button size="sm" onClick={handleExecuteQuery} className="text-xs">
-                    Execute
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-        </ExpandableBottomPanel>
       </main>
 
       {/* Right Slide-out: Migrations */}

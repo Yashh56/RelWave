@@ -1,4 +1,4 @@
-import { Home, Database, Search, GitBranch, Settings, Layers } from 'lucide-react';
+import { Home, Database, Search, GitBranch, Settings, Layers, Terminal } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,6 +31,7 @@ export default function VerticalIconBar({ dbId }: VerticalIconBarProps) {
 
     // Database-specific navigation items (only shown when dbId is provided)
     const databaseNavigationItems = dbId ? [
+        { icon: Terminal, label: 'SQL Workspace', path: `/database/${dbId}/sql-workspace` },
         { icon: Search, label: 'Query Builder', path: `/database/${dbId}/query-builder` },
         { icon: GitBranch, label: 'Schema Explorer', path: `/database/${dbId}/schema-explorer` },
         { icon: Database, label: 'ER Diagram', path: `/database/${dbId}/er-diagram` },
