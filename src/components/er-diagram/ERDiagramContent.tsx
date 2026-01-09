@@ -396,7 +396,7 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
                     )}
 
                     {/* Legend */}
-                    <div className="absolute bottom-4 left-4 bg-card/90 backdrop-blur-sm border border-border rounded-lg p-3 text-xs">
+                    <div className="absolute bottom-20 left-4 bg-card/90 backdrop-blur-sm border border-border rounded-lg p-3 text-xs z-10">
                         <div className="font-semibold mb-2">Legend</div>
                         <div className="space-y-1">
                             <div className="flex items-center gap-2">
