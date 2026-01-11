@@ -142,7 +142,7 @@ export function useTableData(
 export function useDbStats(dbId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.stats(dbId!),
-    queryFn: () => bridgeApi.getDBStats(dbId!),
+    queryFn: () => bridgeApi.getDataBaseStats(dbId!),
     enabled: !!dbId,
     staleTime: STALE_TIMES.stats,
     refetchInterval: 60 * 1000, // Auto-refresh every minute
@@ -302,7 +302,7 @@ export function usePrefetch() {
     prefetchStats: (dbId: string) => {
       queryClient.prefetchQuery({
         queryKey: queryKeys.stats(dbId),
-        queryFn: () => bridgeApi.getDBStats(dbId),
+        queryFn: () => bridgeApi.getDataBaseStats(dbId),
         staleTime: STALE_TIMES.stats,
       });
     },

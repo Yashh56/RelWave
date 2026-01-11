@@ -119,6 +119,7 @@ export function registerDbHandlers(
   rpcRegister("db.add", (p, id) => databaseHandlers.handleAddDatabase(p, id));
   rpcRegister("db.delete", (p, id) => databaseHandlers.handleDeleteDatabase(p, id));
   rpcRegister("db.connectTest", (p, id) => databaseHandlers.handleTestConnection(p, id));
+  rpcRegister("db.touch", (p, id) => databaseHandlers.handleTouchDatabase(p, id));
 
   // ==========================================
   // DATABASE METADATA HANDLERS

@@ -220,6 +220,20 @@ class BridgeApiService {
   }
 
   /**
+   * Update the lastAccessedAt timestamp for a database
+   * @param id - Database ID to touch
+   */
+  async touchDatabase(id: string): Promise<void> {
+    try {
+      if (!id) return;
+      await bridgeRequest("db.touch", { id });
+    } catch (error: any) {
+      // Silently fail - this is not critical
+      console.warn("Failed to update last accessed time:", error);
+    }
+  }
+
+  /**
    * Test connection to a database
    * @param id - Database ID to test
    */
@@ -290,24 +304,20 @@ class BridgeApiService {
     }
   }
 
-  async getDatabaseStats(id: string): Promise<DatabaseStats | {}> {
+  /**
+   * Alias for getDatabaseStats - used by useDbQueries hook
+   */
+  async getDataBaseStats(id: string): Promise<DatabaseStats> {
     try {
       if (!id) {
         throw new Error("Database ID is required");
       }
       const result = await bridgeRequest("db.getStats", { id });
-      return result?.data || {};
+      return result?.data || { tables: 0, rows: 0, sizeBytes: 0 };
     } catch (error: any) {
       console.error("Failed to get database stats:", error);
       throw new Error(`Failed to get database stats: ${error.message}`);
     }
-  }
-
-  /**
-   * Alias for getDatabaseStats - used by useDbQueries hook
-   */
-  async getDBStats(id: string): Promise<DatabaseStats | {}> {
-    return this.getDatabaseStats(id);
   }
 
   async getTotalDatabaseStats(): Promise<DatabaseStats> {
