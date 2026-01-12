@@ -143,7 +143,7 @@ export default function TablesExplorerPanel({
                                                 }`}
                                         />
                                     </button>
-                                    <span className="text-sm font-medium truncate">{table.name}</span>
+                                    <span className="text-sm font-medium truncate font-mono">{table.name}</span>
                                 </div>
                             </button>
                         ))

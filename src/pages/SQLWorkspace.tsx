@@ -293,8 +293,8 @@ const SQLWorkspace = () => {
                                             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left hover:bg-muted/50 transition-colors group"
                                         >
                                             <Table2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                            <span className="text-xs truncate flex-1">{table.name}</span>
-                                            <span className="text-[10px] text-muted-foreground/60 opacity-0 group-hover:opacity-100">
+                                            <span className="text-xs truncate flex-1 font-mono">{table.name}</span>
+                                            <span className="text-[10px] text-muted-foreground/60 opacity-0 group-hover:opacity-100 font-mono">
                                                 {table.schema}
                                             </span>
                                         </button>

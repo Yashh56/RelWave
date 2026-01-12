@@ -128,13 +128,13 @@ export function ConnectionList({
       <div className="p-3 border-t border-border/50 bg-background/50">
         <div className="grid grid-cols-2 gap-2">
           <div className="text-center p-2 rounded-md bg-muted/30">
-            <p className="text-lg font-bold tabular-nums">
+            <p className="text-lg font-bold tabular-nums font-mono">
               {connectedCount}/{databases.length}
             </p>
             <p className="text-[10px] text-muted-foreground">Online</p>
           </div>
           <div className="text-center p-2 rounded-md bg-muted/30">
-            <p className="text-lg font-bold tabular-nums">
+            <p className="text-lg font-bold tabular-nums font-mono">
               {statsLoading ? "—" : totalTables}
             </p>
             <p className="text-[10px] text-muted-foreground">Tables</p>

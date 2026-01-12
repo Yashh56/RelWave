@@ -491,7 +491,7 @@ const QueryBuilder = () => {
                               )}
                             >
                               <Table2 className="h-3 w-3 shrink-0" />
-                              <span className="truncate">{table.name}</span>
+                              <span className="truncate font-mono">{table.name}</span>
                               {isAdded && (
                                 <span className="ml-auto text-[10px] text-primary">
                                   ✓

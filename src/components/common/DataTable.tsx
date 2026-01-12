@@ -54,7 +54,7 @@ export const DataTable = ({
           {columns.map((column) => (
             <TableHead
               key={column}
-              className="text-xs font-medium text-muted-foreground/70 whitespace-nowrap px-4 py-2.5 first:pl-4"
+              className="text-xs font-medium font-mono text-muted-foreground/70 whitespace-nowrap px-4 py-2.5 first:pl-4"
             >
               {column}
             </TableHead>

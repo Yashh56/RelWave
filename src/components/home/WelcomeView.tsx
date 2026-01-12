@@ -51,7 +51,7 @@ export function WelcomeView({
               <Database className="h-4.5 w-4.5 text-primary" />
             </div>
           </div>
-          <p className="text-2xl font-bold tabular-nums">{databases.length}</p>
+          <p className="text-2xl font-bold tabular-nums font-mono">{databases.length}</p>
           <p className="text-xs text-muted-foreground mt-1">Total Connections</p>
         </div>
         <div className="p-5 rounded-xl border border-border/50 bg-card hover:border-border transition-colors">
@@ -60,7 +60,7 @@ export function WelcomeView({
               <CircleDot className="h-4.5 w-4.5 text-emerald-500" />
             </div>
           </div>
-          <p className="text-2xl font-bold tabular-nums">{connectedCount}</p>
+          <p className="text-2xl font-bold tabular-nums font-mono">{connectedCount}</p>
           <p className="text-xs text-muted-foreground mt-1">Online Now</p>
         </div>
         <div className="p-5 rounded-xl border border-border/50 bg-card hover:border-border transition-colors">
@@ -69,7 +69,7 @@ export function WelcomeView({
               <Layers className="h-4.5 w-4.5 text-violet-500" />
             </div>
           </div>
-          <p className="text-2xl font-bold tabular-nums">
+          <p className="text-2xl font-bold tabular-nums font-mono">
             {statsLoading ? "—" : totalTables}
           </p>
           <p className="text-xs text-muted-foreground mt-1">Total Tables</p>
@@ -80,7 +80,7 @@ export function WelcomeView({
               <HardDrive className="h-4.5 w-4.5 text-amber-500" />
             </div>
           </div>
-          <p className="text-2xl font-bold tabular-nums">
+          <p className="text-2xl font-bold tabular-nums font-mono">
             {statsLoading ? "—" : totalSize}
           </p>
           <p className="text-xs text-muted-foreground mt-1">Data Size</p>
@@ -135,7 +135,7 @@ export function WelcomeView({
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{db.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {formatRelativeTime(db.lastAccessedAt)} • {db.type}
+                      {formatRelativeTime(db.lastAccessedAt)} • <span className="font-mono">{db.type}</span>
                     </p>
                   </div>
                   <ChevronRight className="h-4 w-4 text-muted-foreground/50" />

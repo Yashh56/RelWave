@@ -133,7 +133,7 @@ export function AddConnectionDialog({
                 placeholder="localhost"
                 value={formData.host}
                 onChange={(e) => handleInputChange("host", e.target.value)}
-                className="h-9 text-sm"
+                className="h-9 text-sm font-mono"
               />
             </div>
             <div className="space-y-1.5">
@@ -142,7 +142,7 @@ export function AddConnectionDialog({
                 placeholder="5432"
                 value={formData.port}
                 onChange={(e) => handleInputChange("port", e.target.value)}
-                className="h-9 text-sm"
+                className="h-9 text-sm font-mono"
               />
             </div>
           </div>
@@ -154,7 +154,7 @@ export function AddConnectionDialog({
                 placeholder="postgres"
                 value={formData.user}
                 onChange={(e) => handleInputChange("user", e.target.value)}
-                className="h-9 text-sm"
+                className="h-9 text-sm font-mono"
               />
             </div>
             <div className="space-y-1.5">
@@ -175,7 +175,7 @@ export function AddConnectionDialog({
               placeholder="myapp"
               value={formData.database}
               onChange={(e) => handleInputChange("database", e.target.value)}
-              className="h-9 text-sm"
+              className="h-9 text-sm font-mono"
             />
           </div>
 

@@ -121,7 +121,7 @@ export function DatabaseDetail({
                             <Database className="h-4 w-4" />
                             <span className="text-xs">Engine</span>
                         </div>
-                        <p className="text-lg font-semibold capitalize">{database.type}</p>
+                        <p className="text-lg font-semibold capitalize font-mono">{database.type}</p>
                     </div>
                     <div className="p-4 rounded-xl border border-border/50 bg-card">
                         <div className="flex items-center gap-2 text-muted-foreground mb-2">
@@ -137,14 +137,14 @@ export function DatabaseDetail({
                             <Table2 className="h-4 w-4" />
                             <span className="text-xs">Tables</span>
                         </div>
-                        <p className="text-lg font-semibold tabular-nums">{tables}</p>
+                        <p className="text-lg font-semibold tabular-nums font-mono">{tables}</p>
                     </div>
                     <div className="p-4 rounded-xl border border-border/50 bg-card">
                         <div className="flex items-center gap-2 text-muted-foreground mb-2">
                             <HardDrive className="h-4 w-4" />
                             <span className="text-xs">Size</span>
                         </div>
-                        <p className="text-lg font-semibold tabular-nums">{size}</p>
+                        <p className="text-lg font-semibold tabular-nums font-mono">{size}</p>
                     </div>
                 </div>
 
