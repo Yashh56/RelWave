@@ -14,6 +14,7 @@ import SchemaExplorer from './pages/SchemaExplorer';
 import Settings from './pages/Settings';
 import { useBridgeInit } from "@/hooks/useBridgeInit";
 import { useEffect } from 'react';
+import { DeveloperContextMenu } from './components/common/DeveloperContextMenu';
 
 const queryClient = new QueryClient();
 
@@ -45,22 +46,24 @@ function AppRoot() {
         <BridgeInitializer />
         <ThemeVariantInitializer />
         <TooltipProvider>
-          <Toaster />
-          <TitleBar />
-          <div className="pt-8">
-            <BrowserRouter>
-              <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/:id" element={<DatabaseDetail />} />
-                <Route path="/database/:id/query-builder" element={<QueryBuilder />} />
-                <Route path="/database/:id/sql-workspace" element={<SQLWorkspace />} />
-                <Route path="/database/:id/er-diagram" element={<ERDiagram />} />
-                <Route path='/database/:id/schema-explorer' element={<SchemaExplorer />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </div>
+          <DeveloperContextMenu>
+            <Toaster />
+            <TitleBar />
+            <div className="pt-8">
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/:id" element={<DatabaseDetail />} />
+                  <Route path="/database/:id/query-builder" element={<QueryBuilder />} />
+                  <Route path="/database/:id/sql-workspace" element={<SQLWorkspace />} />
+                  <Route path="/database/:id/er-diagram" element={<ERDiagram />} />
+                  <Route path='/database/:id/schema-explorer' element={<SchemaExplorer />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </BrowserRouter>
+            </div>
+          </DeveloperContextMenu>
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>
