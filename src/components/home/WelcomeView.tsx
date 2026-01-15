@@ -35,7 +35,7 @@ export function WelcomeView({
             <Sparkles className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">Welcome to DB Studio</h1>
+            <h1 className="text-xl font-semibold">Welcome to RelWave</h1>
             <p className="text-sm text-muted-foreground">
               Select a connection or add a new one
             </p>
