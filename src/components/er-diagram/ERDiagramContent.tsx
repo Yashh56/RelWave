@@ -270,14 +270,13 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
     return (
         <TooltipProvider>
             <div className="h-screen bg-background flex flex-col">
-                <header className="border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-10">
-                    <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-4">
+                <header className="border-b bg-card/50 backdrop-blur">
+                    <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
-                            <Link to={`/${dbId}`}>
-                                <button className="p-2 text-muted-foreground hover:bg-muted rounded-md transition-colors">
-                                    <ArrowLeft className="h-4 w-4" />
-                                </button>
-                            </Link>
+                            <Database className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">{schemaData.name || 'Database'}</span>
+                            <span className="text-muted-foreground/50">•</span>
+                            <span className="text-sm font-medium text-foreground">ER Diagram</span>
                         </div>
 
                         {/* Search bar */}
