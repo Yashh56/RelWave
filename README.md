@@ -10,17 +10,17 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0--beta.1-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.1.0--beta.4-blue" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey" alt="Platform" />
-  <img src="https://img.shields.io/badge/databases-PostgreSQL%20%7C%20MySQL-orange" alt="Databases" />
+  <img src="https://img.shields.io/badge/databases-PostgreSQL%20%7C%20MySQL%20%7C%20MariaDB-orange" alt="Databases" />
 </p>
 
 <p align="center">
   <a href="https://github.com/Yashh56/RelWave/releases"><strong>Download</strong></a> |
-  <a href="#-features"><strong>Features</strong></a> |
-  <a href="#-installation"><strong>Installation</strong></a> |
-  <a href="#-contributing"><strong>Contributing</strong></a>
+  <a href="#Features"><strong>Features</strong></a> |
+  <a href="#Installation"><strong>Installation</strong></a> |
+  <a href="#Contributing"><strong>Contributing</strong></a>
 </p>
 
 ---
@@ -232,9 +232,69 @@ Database connection configurations are stored in:
 
 ### Running Tests
 
+The bridge includes a comprehensive test suite with integration tests for database connectors.
+
+#### Prerequisites
+
+1. **Docker** - Required for running test databases:
+
+```bash
+cd bridge
+docker-compose -f docker-compose.test.yml up -d
+```
+
+This starts PostgreSQL, MySQL, and MariaDB containers for testing.
+
+2. **Environment Variables** - Create a `.env` file in the `bridge` directory:
+
+```env
+# PostgreSQL Test Configuration
+REAL_POSTGRES_HOST=localhost
+REAL_POSTGRES_PORT=5432
+REAL_POSTGRES_USER=testuser
+REAL_POSTGRES_PASSWORD=testpass
+REAL_POSTGRES_DATABASE=testdb
+REAL_POSTGRES_SSL=false
+
+# MySQL Test Configuration
+REAL_MYSQL_HOST=localhost
+REAL_MYSQL_PORT=3306
+REAL_MYSQL_USER=testuser
+REAL_MYSQL_PASSWORD=testpass
+REAL_MYSQL_DATABASE=testdb
+
+# MariaDB Test Configuration
+REAL_MARIADB_HOST=localhost
+REAL_MARIADB_PORT=3307
+REAL_MARIADB_USER=testuser
+REAL_MARIADB_PASSWORD=testpass
+REAL_MARIADB_DATABASE=testdb
+```
+
+#### Running Tests
+
 ```bash
 cd bridge
 pnpm test
+```
+
+#### Test Suites
+
+| Test Suite | Description |
+|------------|-------------|
+| `databaseService.test.ts` | Database service CRUD operations and validation |
+| `dbStore.test.ts` | Database store caching, encryption, and persistence |
+| `connectionBuilder.test.ts` | Connection configuration building |
+| `postgres.test.ts` | PostgreSQL connector integration tests |
+| `mysql.test.ts` | MySQL connector integration tests |
+| `mariadb.test.ts` | MariaDB connector integration tests |
+| `*.cache.test.ts` | Query result caching tests for each connector |
+
+#### Stopping Test Databases
+
+```bash
+cd bridge
+docker-compose -f docker-compose.test.yml down
 ```
 
 ### Architecture
