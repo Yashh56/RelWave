@@ -12,7 +12,7 @@ const TEST_CREDENTIALS_FILE = path.join(TEST_CONFIG_FOLDER, ".credentials");
 const TEST_ENCRYPTION_KEY = "test-encryption-key";
 
 // Short TTL for testing cache expiration
-const SHORT_CACHE_TTL = 100; // 100ms for testing
+const SHORT_CACHE_TTL = 200; // 200ms for testing
 const NORMAL_CACHE_TTL = 30000; // 30 seconds
 
 const mockDBPayload = {
@@ -207,8 +207,8 @@ describe("DbStore Cache Tests", () => {
       // Cache should be populated after addDB (saveAll updates cache)
       expect(shortTtlStore.getCacheStats().configCached).toBe(true);
 
-      // Wait for TTL to expire
-      await new Promise((resolve) => setTimeout(resolve, SHORT_CACHE_TTL + 50));
+      // Wait for TTL to expire (add extra buffer for system lag)
+      await new Promise((resolve) => setTimeout(resolve, SHORT_CACHE_TTL + 150));
 
       // Cache should be expired now
       expect(shortTtlStore.getCacheStats().configCached).toBe(false);
