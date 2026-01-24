@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { WelcomeViewProps } from "./types";
 import { formatRelativeTime } from "./utils";
+import { DiscoveredDatabasesCard } from "./DiscoveredDatabasesCard";
+import { DiscoveredDatabase } from "@/types/database";
 
 export function WelcomeView({
   databases,
@@ -25,6 +27,7 @@ export function WelcomeView({
   onSelectDb,
   onDatabaseClick,
   onDatabaseHover,
+  onDiscoveredDatabaseAdd,
 }: WelcomeViewProps) {
   return (
     <div className="h-full flex flex-col p-6">
@@ -87,6 +90,11 @@ export function WelcomeView({
         </div>
       </div>
 
+      {/* Discovered Databases */}
+      {onDiscoveredDatabaseAdd && (
+        <DiscoveredDatabasesCard onAddDatabase={onDiscoveredDatabaseAdd} />
+      )}
+
       {/* Recent Activity */}
       {recentDatabases.length > 0 && (
         <div className="flex-1">
@@ -109,7 +117,7 @@ export function WelcomeView({
                   className={cn(
                     "w-full flex items-center gap-4 px-4 py-3 text-left transition-colors",
                     index !== recentDatabases.length - 1 &&
-                      "border-b border-border/30",
+                    "border-b border-border/30",
                     isConnected
                       ? "hover:bg-muted/50"
                       : "opacity-50 cursor-not-allowed"

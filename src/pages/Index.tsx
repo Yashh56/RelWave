@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { bridgeApi } from "@/services/bridgeApi";
@@ -75,6 +75,7 @@ const Index = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [dbToDelete, setDbToDelete] = useState<{ id: string; name: string } | null>(null);
   const [selectedDb, setSelectedDb] = useState<string | null>(null);
+  const [prefilledConnectionData, setPrefilledConnectionData] = useState<Partial<ConnectionFormData> | undefined>(undefined);
 
   // Use fresh data if available, fall back to cached data
   const status = statusData || cachedStatus;
@@ -170,6 +171,22 @@ const Index = () => {
     prefetchStats(dbId);
   };
 
+  // Handler for when a discovered database is selected
+  const handleDiscoveredDatabaseAdd = useCallback((db: { type: string; host: string; port: number; suggestedName: string; defaultUser: string; defaultDatabase: string; defaultPassword?: string }) => {
+    setPrefilledConnectionData({
+      name: db.suggestedName,
+      type: db.type,
+      host: db.host,
+      port: String(db.port),
+      user: db.defaultUser,
+      database: db.defaultDatabase,
+      password: db.defaultPassword || "",
+      ssl: false,
+      sslmode: "",
+    });
+    setIsDialogOpen(true);
+  }, []);
+
   // Loading states
   if (bridgeLoading || bridgeReady === undefined) return <BridgeLoader />;
   if (!bridgeReady) return <BridgeFailed />;
@@ -231,6 +248,7 @@ const Index = () => {
               onSelectDb={setSelectedDb}
               onDatabaseClick={handleDatabaseClick}
               onDatabaseHover={handleDatabaseHover}
+              onDiscoveredDatabaseAdd={handleDiscoveredDatabaseAdd}
             />
           )}
         </div>
@@ -239,9 +257,13 @@ const Index = () => {
       {/* Add Database Dialog */}
       <AddConnectionDialog
         open={isDialogOpen}
-        onOpenChange={setIsDialogOpen}
+        onOpenChange={(open) => {
+          setIsDialogOpen(open);
+          if (!open) setPrefilledConnectionData(undefined);
+        }}
         onSubmit={(formData) => handleAddDatabase(formData)}
         isLoading={addDatabaseMutation.isPending}
+        initialData={prefilledConnectionData}
       />
 
       {/* Delete Dialog */}

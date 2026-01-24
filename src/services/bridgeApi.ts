@@ -1,4 +1,4 @@
-import { AddDatabaseParams, ColumnDetails, ConnectionTestResult, CreateTableColumn, DatabaseConnection, DatabaseSchemaDetails, DatabaseStats, RunQueryParams, TableRow, UpdateDatabaseParams } from "@/types/database";
+import { AddDatabaseParams, ConnectionTestResult, CreateTableColumn, DatabaseConnection, DatabaseSchemaDetails, DatabaseStats, DiscoveredDatabase, RunQueryParams, TableRow, UpdateDatabaseParams } from "@/types/database";
 import { bridgeRequest } from "./bridgeClient";
 
 
@@ -759,6 +759,24 @@ class BridgeApiService {
       return result?.data || { ok: false, uptimeSec: 0, pid: 0 };
     } catch (error: any) {
       throw new Error(`Health check failed: ${error.message}`);
+    }
+  }
+
+  // ------------------------------------
+  // 5. DATABASE DISCOVERY METHODS
+  // ------------------------------------
+
+  /**
+   * Discover locally running databases (on localhost or Docker)
+   * Scans common database ports and detects Docker containers
+   */
+  async discoverDatabases(): Promise<DiscoveredDatabase[]> {
+    try {
+      const result = await bridgeRequest("db.discover", {});
+      return result?.data || [];
+    } catch (error: any) {
+      console.error("Failed to discover databases:", error);
+      return []; // Return empty array on error, don't throw
     }
   }
 }
