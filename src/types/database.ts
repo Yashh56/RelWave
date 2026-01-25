@@ -1,6 +1,18 @@
 
 export type DatabaseType = "postgresql" | "mysql";
 
+export interface DiscoveredDatabase {
+    type: "postgresql" | "mysql" | "mariadb";
+    host: string;
+    port: number;
+    source: "local" | "docker";
+    containerName?: string;
+    suggestedName: string;
+    defaultUser: string;
+    defaultDatabase: string;
+    defaultPassword?: string;
+}
+
 export interface DatabaseConnection {
     id: string;
     name: string;

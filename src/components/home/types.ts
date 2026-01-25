@@ -1,4 +1,4 @@
-import { DatabaseConnection } from "@/types/database";
+import { DatabaseConnection, DiscoveredDatabase } from "@/types/database";
 
 export interface ConnectionListProps {
     databases: DatabaseConnection[];
@@ -40,6 +40,7 @@ export interface WelcomeViewProps {
     onSelectDb: (id: string) => void;
     onDatabaseClick: (id: string) => void;
     onDatabaseHover: (dbId: string) => void;
+    onDiscoveredDatabaseAdd?: (db: DiscoveredDatabase) => void;
 }
 
 export interface AddConnectionDialogProps {
@@ -47,6 +48,7 @@ export interface AddConnectionDialogProps {
     onOpenChange: (open: boolean) => void;
     onSubmit: (data: ConnectionFormData, useUrl: boolean, connectionUrl: string) => void;
     isLoading?: boolean;
+    initialData?: Partial<ConnectionFormData>;
 }
 
 export interface DeleteDialogProps {

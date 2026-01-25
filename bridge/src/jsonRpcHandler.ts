@@ -7,6 +7,7 @@ import { DatabaseHandlers } from "./handlers/databaseHandlers";
 import { SessionHandlers } from "./handlers/sessionHandlers";
 import { StatsHandlers } from "./handlers/statsHandlers";
 import { MigrationHandlers } from "./handlers/migrationHandlers";
+import { discoveryService } from "./services/discoveryService";
 import { Logger } from "pino";
 
 /**
@@ -163,6 +164,18 @@ export function registerDbHandlers(
   rpcRegister("db.getTotalStats", (p, id) =>
     statsHandlers.handleGetTotalStats(p, id)
   );
+
+  // ==========================================
+  // DATABASE DISCOVERY HANDLERS
+  // ==========================================
+  rpcRegister("db.discover", async (_p, id) => {
+    try {
+      const discovered = await discoveryService.discoverLocalDatabases();
+      rpc.sendResponse(id, { ok: true, data: discovered });
+    } catch (error: any) {
+      rpc.sendError(id, { code: "DISCOVERY_ERROR", message: error.message });
+    }
+  });
 
   logger?.info("All RPC handlers registered successfully");
 }

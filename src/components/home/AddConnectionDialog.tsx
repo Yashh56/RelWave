@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Database, Link as LinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,10 +27,21 @@ export function AddConnectionDialog({
   onOpenChange,
   onSubmit,
   isLoading,
+  initialData,
 }: AddConnectionDialogProps) {
   const [useUrl, setUseUrl] = useState(false);
   const [connectionUrl, setConnectionUrl] = useState("");
   const [formData, setFormData] = useState<ConnectionFormData>(INITIAL_FORM_DATA);
+
+  // Apply initial data when dialog opens with prefilled values
+  useEffect(() => {
+    if (open && initialData) {
+      setFormData(prev => ({
+        ...prev,
+        ...initialData,
+      }));
+    }
+  }, [open, initialData]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
