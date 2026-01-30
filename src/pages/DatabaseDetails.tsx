@@ -254,6 +254,7 @@ const DatabaseDetail = () => {
                   dbId={dbId || ''}
                   tables={tables}
                   selectedTable={selectedTable}
+                  selectedSchema={selectedSchema}
                   onSelectTable={handleTableSelect}
                   loading={loadingTables}
                 />
