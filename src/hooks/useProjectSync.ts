@@ -1,36 +1,9 @@
 import { useEffect, useRef, useCallback } from "react";
 import { bridgeApi } from "@/services/bridgeApi";
 import { useProjectByDatabaseId } from "@/hooks/useProjectQueries";
-import type { DatabaseSchemaDetails, SchemaGroup, TableSchemaDetails } from "@/types/database";
-import type { SchemaSnapshot, TableSnapshot, ColumnSnapshot, ERNode } from "@/types/project";
-
-// ==========================================
-// Schema data transformer
-// Live DB format → Project store format
-// ==========================================
-
-function transformToSchemaSnapshots(schemas: SchemaGroup[]): SchemaSnapshot[] {
-    return schemas.map((sg) => ({
-        name: sg.name,
-        tables: (sg.tables || []).map(
-            (t): TableSnapshot => ({
-                name: t.name,
-                type: t.type || "BASE TABLE",
-                columns: (t.columns || []).map(
-                    (c): ColumnSnapshot => ({
-                        name: c.name,
-                        type: c.type,
-                        nullable: c.nullable ?? true,
-                        isPrimaryKey: c.isPrimaryKey ?? false,
-                        isForeignKey: c.isForeignKey ?? false,
-                        defaultValue: c.defaultValue ?? null,
-                        isUnique: c.isUnique ?? false,
-                    })
-                ),
-            })
-        ),
-    }));
-}
+import { schemaGroupsToSnapshots } from "@/lib/schemaConverters";
+import type { DatabaseSchemaDetails } from "@/types/database";
+import type { ERNode } from "@/types/project";
 
 // ==========================================
 // Hook: useProjectSync
@@ -76,7 +49,7 @@ export function useProjectSync(
 
         if (fingerprint === lastSyncedSchemaRef.current) return;
 
-        const snapshots = transformToSchemaSnapshots(schemaData.schemas);
+        const snapshots = schemaGroupsToSnapshots(schemaData.schemas);
 
         // Fire-and-forget — sync in the background without blocking UI
         bridgeApi
