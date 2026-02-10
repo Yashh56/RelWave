@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import DatabaseDetail from './pages/DatabaseDetails';
+import Projects from './pages/Projects';
 import NotFound from './pages/NotFound';
 import { ThemeProvider } from './components/common/ThemeProvider';
 import Settings from './pages/Settings';
@@ -51,6 +52,7 @@ function AppRoot() {
               <BrowserRouter>
                 <Routes>
                   <Route path="/" element={<Index />} />
+                  <Route path="/projects" element={<Projects />} />
                   <Route path="/:id" element={<DatabaseDetail />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="*" element={<NotFound />} />

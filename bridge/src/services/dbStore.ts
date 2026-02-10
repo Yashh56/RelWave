@@ -9,34 +9,9 @@ import fsSync from "fs";
 import { v4 as uuidv4 } from "uuid";
 import { createCipheriv, createDecipheriv, randomBytes, scrypt } from "crypto";
 import { promisify } from "util";
-
+import { CONFIG_FOLDER, CONFIG_FILE, CREDENTIALS_FILE } from "../utils/config";
 const scryptAsync = promisify(scrypt);
 
-export const CONFIG_FOLDER =
-  process.env.RELWAVE_HOME ||
-  path.join(
-    os.homedir(),
-    process.platform === "win32"
-      ? "AppData\\Roaming\\relwave"
-      : ".relwave"
-  );
-
-export const CONFIG_FILE = path.join(CONFIG_FOLDER, "databases.json");
-export const CREDENTIALS_FILE = path.join(CONFIG_FOLDER, ".credentials");
-
-export function getConnectionDir(connectionId: string) {
-  return path.join(CONFIG_FOLDER, "connections", connectionId);
-}
-
-export function getMigrationsDir(connectionId: string) {
-  return path.join(CONFIG_FOLDER, "migrations", connectionId);
-}
-
-export function ensureDir(dir: string) {
-  if (!fsSync.existsSync(dir)) {
-    fsSync.mkdirSync(dir, { recursive: true });
-  }
-}
 
 
 // Use machine-specific key for encryption

@@ -7,7 +7,7 @@ import mysql, {
 import { loadLocalMigrations, writeBaselineMigration } from "../utils/baselineMigration";
 import crypto from "crypto";
 import fs from "fs";
-import { ensureDir, getMigrationsDir } from "../services/dbStore";
+import { ensureDir, getMigrationsDir } from "../utils/config";
 import {
   CacheEntry,
   CACHE_TTL,

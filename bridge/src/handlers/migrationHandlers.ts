@@ -2,7 +2,7 @@ import { Rpc } from "../types";
 import { DatabaseService } from "../services/databaseService";
 import { QueryExecutor } from "../services/queryExecutor";
 import { Logger } from "pino";
-import { getMigrationsDir } from "../services/dbStore";
+import { getMigrationsDir } from "../utils/config";
 import path from "path";
 import fs from "fs";
 

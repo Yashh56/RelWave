@@ -7,6 +7,7 @@ import { DatabaseHandlers } from "./handlers/databaseHandlers";
 import { SessionHandlers } from "./handlers/sessionHandlers";
 import { StatsHandlers } from "./handlers/statsHandlers";
 import { MigrationHandlers } from "./handlers/migrationHandlers";
+import { ProjectHandlers } from "./handlers/projectHandlers";
 import { discoveryService } from "./services/discoveryService";
 import { Logger } from "pino";
 
@@ -52,6 +53,7 @@ export function registerDbHandlers(
     dbService,
     queryExecutor
   );
+  const projectHandlers = new ProjectHandlers(rpc, logger);
 
   // ==========================================
   // SESSION MANAGEMENT HANDLERS
@@ -166,6 +168,55 @@ export function registerDbHandlers(
   rpcRegister("db.getStats", (p, id) => statsHandlers.handleGetStats(p, id));
   rpcRegister("db.getTotalStats", (p, id) =>
     statsHandlers.handleGetTotalStats(p, id)
+  );
+
+  // ==========================================
+  // PROJECT HANDLERS
+  // ==========================================
+  rpcRegister("project.list", (p, id) =>
+    projectHandlers.handleListProjects(p, id)
+  );
+  rpcRegister("project.get", (p, id) =>
+    projectHandlers.handleGetProject(p, id)
+  );
+  rpcRegister("project.getByDatabaseId", (p, id) =>
+    projectHandlers.handleGetProjectByDatabaseId(p, id)
+  );
+  rpcRegister("project.create", (p, id) =>
+    projectHandlers.handleCreateProject(p, id)
+  );
+  rpcRegister("project.update", (p, id) =>
+    projectHandlers.handleUpdateProject(p, id)
+  );
+  rpcRegister("project.delete", (p, id) =>
+    projectHandlers.handleDeleteProject(p, id)
+  );
+  rpcRegister("project.getSchema", (p, id) =>
+    projectHandlers.handleGetSchema(p, id)
+  );
+  rpcRegister("project.saveSchema", (p, id) =>
+    projectHandlers.handleSaveSchema(p, id)
+  );
+  rpcRegister("project.getERDiagram", (p, id) =>
+    projectHandlers.handleGetERDiagram(p, id)
+  );
+  rpcRegister("project.saveERDiagram", (p, id) =>
+    projectHandlers.handleSaveERDiagram(p, id)
+  );
+  rpcRegister("project.getQueries", (p, id) =>
+    projectHandlers.handleGetQueries(p, id)
+  );
+  rpcRegister("project.addQuery", (p, id) =>
+    projectHandlers.handleAddQuery(p, id)
+  );
+  rpcRegister("project.updateQuery", (p, id) =>
+    projectHandlers.handleUpdateQuery(p, id)
+  );
+  rpcRegister("project.deleteQuery", (p, id) =>
+    projectHandlers.handleDeleteQuery(p, id)
+  );
+  rpcRegister("project.export", (p, id) =>
+    projectHandlers.handleExportProject(p, id)
   );
 
   // ==========================================

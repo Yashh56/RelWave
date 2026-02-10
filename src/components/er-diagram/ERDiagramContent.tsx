@@ -1,6 +1,6 @@
 import { toPng, toSvg } from "html-to-image";
-import { ArrowLeft, ChevronDown, Database, Download, Filter, LayoutGrid, Layers, Search, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, Cloud, Database, Download, Filter, HardDrive, LayoutGrid, Layers, RefreshCw, Search, WifiOff, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
     Background,
@@ -18,8 +18,10 @@ import {
 import { toast } from "sonner";
 import { transformSchemaToER } from "@/lib/schemaTransformer";
 import { Spinner } from "@/components/ui/spinner";
-import { useFullSchema } from "@/hooks/useDbQueries";
+import { useERDiagramData } from "@/hooks/useERDiagramData";
+import { bridgeApi } from "@/services/bridgeApi";
 import { ColumnDetails, DatabaseSchemaDetails, ForeignKeyInfo, TableSchemaDetails } from "@/types/database";
+import type { ERNode } from "@/types/project";
 import {
     Tooltip,
     TooltipContent,
@@ -55,9 +57,12 @@ interface ERDiagramContentProps {
     nodeTypes: {
         table: React.FC<{ data: TableNodeData }>;
     };
+    projectId?: string | null;
 }
 
-const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
+const ER_SAVE_DEBOUNCE_MS = 2000;
+
+const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes, projectId }) => {
     const { id: dbId } = useParams<{ id: string }>();
     const reactFlowInstance = useReactFlow();
 
@@ -69,17 +74,21 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [hoveredEdge, setHoveredEdge] = useState<Edge | null>(null);
     const [selectedSchema, setSelectedSchema] = useState<string>("__all__");
+    const [isSyncing, setIsSyncing] = useState(false);
 
-    // Use React Query for schema data (cached!)
+    // Use the smart data source hook (offline-first + live fallback)
     const {
-        data: schemaData,
+        schemaData,
+        savedLayout,
         isLoading,
-        error: queryError
-    } = useFullSchema(dbId);
+        dataSource,
+        hasLiveSchema,
+        syncFromDatabase,
+    } = useERDiagramData(dbId, projectId);
 
-
-    const error = queryError ? (queryError as Error).message :
-        (schemaData && !schemaData.schemas?.some(s => s.tables?.length))
+    const error = !isLoading && !schemaData
+        ? "No schema data available. Connect to a database or open a project."
+        : (schemaData && !schemaData.schemas?.some(s => s.tables?.length))
             ? "Schema data found, but no tables to render."
             : null;
 
@@ -95,7 +104,7 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
     const filteredSchemaData = useMemo((): DatabaseSchemaDetails | null => {
         if (!schemaData) return null;
         if (selectedSchema === "__all__") return schemaData;
-        
+
         return {
             ...schemaData,
             schemas: schemaData.schemas.filter(s => s.name === selectedSchema)
@@ -103,18 +112,83 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
     }, [schemaData, selectedSchema]);
 
     // Transform schema to ER nodes/edges when data or filter changes
+    // Merges saved layout positions with schema data:
+    //   - Table in schema + in saved layout → use saved position
+    //   - Table in schema but NOT in saved layout → auto-place (new table)
+    //   - Table in saved layout but NOT in schema → ignored (removed table)
     useEffect(() => {
         if (filteredSchemaData && filteredSchemaData.schemas?.some(s => s.tables?.length)) {
-            const { nodes: newNodes, edges: newEdges } = transformSchemaToER(filteredSchemaData);
+            const layoutNodes = savedLayout?.nodes ?? null;
+            const { nodes: newNodes, edges: newEdges } = transformSchemaToER(
+                filteredSchemaData,
+                true,
+                layoutNodes
+            );
             setNodes(newNodes as typeof nodes);
             setEdges(newEdges);
             // Fit view after layout change
-            setTimeout(() => reactFlowInstance?.fitView({ padding: 0.2, duration: 300 }), 100);
+            setTimeout(() => {
+                if (savedLayout?.zoom != null && savedLayout?.panX != null && savedLayout?.panY != null) {
+                    reactFlowInstance?.setViewport({
+                        zoom: savedLayout.zoom,
+                        x: savedLayout.panX,
+                        y: savedLayout.panY,
+                    });
+                } else {
+                    reactFlowInstance?.fitView({ padding: 0.2, duration: 300 });
+                }
+            }, 100);
         } else {
             setNodes([]);
             setEdges([]);
         }
-    }, [filteredSchemaData, setNodes, setEdges, reactFlowInstance]);
+    }, [filteredSchemaData, savedLayout, setNodes, setEdges, reactFlowInstance]);
+
+    // -----------------------------------------
+    // Auto-save ER node positions to project
+    // Debounced: only fires ER_SAVE_DEBOUNCE_MS after last node movement
+    // -----------------------------------------
+    const erSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const initialLayoutDoneRef = useRef(false);
+
+    // Mark that the initial layout just happened so we skip saving it
+    useEffect(() => {
+        initialLayoutDoneRef.current = false;
+        const id = setTimeout(() => { initialLayoutDoneRef.current = true; }, 800);
+        return () => clearTimeout(id);
+    }, [filteredSchemaData, savedLayout]);
+
+    useEffect(() => {
+        // Don't save during initial layout or if no project linked
+        if (!projectId || !initialLayoutDoneRef.current || nodes.length === 0) return;
+
+        if (erSaveTimerRef.current) clearTimeout(erSaveTimerRef.current);
+
+        erSaveTimerRef.current = setTimeout(() => {
+            const viewport = reactFlowInstance?.getViewport();
+            const erNodes: ERNode[] = nodes.map((n) => ({
+                tableId: n.id,
+                x: n.position.x,
+                y: n.position.y,
+                width: n.width ?? undefined,
+                height: n.height ?? undefined,
+            }));
+
+            bridgeApi
+                .saveProjectERDiagram(projectId, {
+                    nodes: erNodes,
+                    zoom: viewport?.zoom,
+                    panX: viewport?.x,
+                    panY: viewport?.y,
+                })
+                .then(() => console.debug("[ProjectSync] ER diagram saved"))
+                .catch((err) => console.warn("[ProjectSync] ER diagram save failed:", err.message));
+        }, ER_SAVE_DEBOUNCE_MS);
+
+        return () => {
+            if (erSaveTimerRef.current) clearTimeout(erSaveTimerRef.current);
+        };
+    }, [nodes, projectId, reactFlowInstance]);
 
     // Filter nodes based on search query
     const filteredNodes = useMemo(() => {
@@ -210,10 +284,10 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
         }
     }, [filteredNodes, reactFlowInstance]);
 
-    // Re-layout with dagre
+    // Re-layout with dagre (ignores saved layout to generate fresh positions)
     const reLayout = useCallback(() => {
         if (filteredSchemaData) {
-            const { nodes: newNodes, edges: newEdges } = transformSchemaToER(filteredSchemaData, true);
+            const { nodes: newNodes, edges: newEdges } = transformSchemaToER(filteredSchemaData, true, null);
             setNodes(newNodes as typeof nodes);
             setEdges(newEdges);
             setTimeout(() => reactFlowInstance?.fitView({ padding: 0.2, duration: 500 }), 100);
@@ -284,15 +358,35 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
     if (error || !schemaData || nodes.length === 0) {
         return (
             <div className="h-screen flex items-center justify-center bg-background">
-                <div className="text-center p-6 border border-border rounded-lg bg-card">
+                <div className="text-center p-6 border border-border rounded-lg bg-card max-w-sm">
                     <Database className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
                     <h2 className="text-base font-medium mb-1">Diagram Unavailable</h2>
                     <p className="text-sm text-muted-foreground mb-4">{error || "No tables found."}</p>
-                    <Link to={`/${dbId}`}>
-                        <button className="px-4 py-2 rounded-md text-sm bg-primary text-primary-foreground hover:bg-primary/90">
-                            Go Back
-                        </button>
-                    </Link>
+                    <div className="flex gap-2 justify-center">
+                        {hasLiveSchema && projectId && (
+                            <Button
+                                size="sm"
+                                onClick={async () => {
+                                    setIsSyncing(true);
+                                    await syncFromDatabase();
+                                    setIsSyncing(false);
+                                }}
+                                disabled={isSyncing}
+                            >
+                                {isSyncing ? (
+                                    <Spinner className="h-3.5 w-3.5 mr-1.5" />
+                                ) : (
+                                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                                )}
+                                Pull from Database
+                            </Button>
+                        )}
+                        <Link to={`/${dbId}`}>
+                            <Button variant="outline" size="sm">
+                                Go Back
+                            </Button>
+                        </Link>
+                    </div>
                 </div>
             </div>
         );
@@ -308,6 +402,27 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
                         <span className="text-sm font-medium">{schemaData.name || 'Database'}</span>
                         <span className="text-muted-foreground/50">•</span>
                         <span className="text-sm font-medium text-foreground">ER Diagram</span>
+                        {/* Data source badge */}
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${dataSource === "live"
+                                    ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
+                                    : "bg-amber-500/10 text-amber-600 border border-amber-500/20"
+                                    }`}>
+                                    {dataSource === "live" ? (
+                                        <Cloud className="h-3 w-3" />
+                                    ) : (
+                                        <HardDrive className="h-3 w-3" />
+                                    )}
+                                    {dataSource === "live" ? "Live" : "Offline"}
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" sideOffset={8}>
+                                {dataSource === "live"
+                                    ? "Schema loaded from live database connection"
+                                    : "Schema loaded from saved project files (offline)"}
+                            </TooltipContent>
+                        </Tooltip>
                     </div>
 
                     {/* Schema filter dropdown */}
@@ -385,6 +500,34 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
                                 Clear
                             </button>
                         )}
+                        {/* Sync from Database button */}
+                        {projectId && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 text-xs"
+                                        onClick={async () => {
+                                            setIsSyncing(true);
+                                            await syncFromDatabase();
+                                            setIsSyncing(false);
+                                        }}
+                                        disabled={isSyncing || !hasLiveSchema}
+                                    >
+                                        {isSyncing ? (
+                                            <Spinner className="h-3.5 w-3.5 mr-1.5" />
+                                        ) : (
+                                            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                                        )}
+                                        Sync
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" sideOffset={8}>
+                                    Pull fresh schema from database (keeps your layout)
+                                </TooltipContent>
+                            </Tooltip>
+                        )}
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <button
@@ -394,7 +537,7 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
                                     <LayoutGrid className="h-4 w-4" />
                                 </button>
                             </TooltipTrigger>
-                            <TooltipContent>Re-layout diagram</TooltipContent>
+                            <TooltipContent side="bottom" sideOffset={8}>Re-layout diagram</TooltipContent>
                         </Tooltip>
                         {["png", "svg"].map((format) => (
                             <button
@@ -482,7 +625,12 @@ const ERDiagramContent: React.FC<ERDiagramContentProps> = ({ nodeTypes }) => {
                         {selectedSchema !== "__all__" && ` • Schema: ${selectedSchema}`}
                         {selectedNodeId && ` • Selected: ${selectedNodeId.split('.')[1]}`}
                     </span>
-                    <span>Click table to highlight • Drag to pan • Scroll to zoom</span>
+                    <span className="flex items-center gap-3">
+                        {savedLayout && (
+                            <span className="text-muted-foreground/60">Layout saved</span>
+                        )}
+                        <span>Click table to highlight • Drag to pan • Scroll to zoom</span>
+                    </span>
                 </div>
             </div>
         </TooltipProvider >

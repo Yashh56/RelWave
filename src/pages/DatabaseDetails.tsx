@@ -11,8 +11,9 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useBridgeQuery } from "@/hooks/useBridgeQuery";
 import { useDatabaseDetails } from "@/hooks/useDatabaseDetails";
-import { useMigrations } from "@/hooks/useDbQueries";
+import { useMigrations, useFullSchema } from "@/hooks/useDbQueries";
 import { useExport } from "@/hooks/useExport";
+import { useProjectSync } from "@/hooks/useProjectSync";
 import BridgeLoader from "@/components/feedback/BridgeLoader";
 import { Spinner } from "@/components/ui/spinner";
 import VerticalIconBar, { PanelType } from "@/components/common/VerticalIconBar";
@@ -90,6 +91,12 @@ const DatabaseDetail = () => {
   };
   const baselined = migrationsResponse?.baselined || false;
 
+  // --- Project auto-sync ---
+  // Fetches schema (React Query deduplicates with child components)
+  // and auto-saves to the linked project's JSON files in the background.
+  const { data: schemaData } = useFullSchema(dbId);
+  const { projectId } = useProjectSync(dbId, schemaData ?? undefined);
+
   if (bridgeLoading || bridgeReady === undefined) {
     return <BridgeLoader />;
   }
@@ -137,9 +144,9 @@ const DatabaseDetail = () => {
       case 'query-builder':
         return <QueryBuilderPanel dbId={dbId || ''} />;
       case 'schema-explorer':
-        return <SchemaExplorerPanel dbId={dbId || ''} />;
+        return <SchemaExplorerPanel dbId={dbId || ''} projectId={projectId} />;
       case 'er-diagram':
-        return <ERDiagramPanel />;
+        return <ERDiagramPanel projectId={projectId} />;
       case 'data':
       default:
         return (

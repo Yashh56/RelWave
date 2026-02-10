@@ -1,4 +1,5 @@
 import { ColumnDetails, DatabaseSchemaDetails, ForeignKeyInfo, TableSchemaDetails } from "@/types/database";
+import type { ERNode } from "@/types/project";
 import { Edge, MarkerType, Node } from "reactflow";
 import dagre from "dagre";
 
@@ -82,7 +83,8 @@ const applyDagreLayout = (
 
 export const transformSchemaToER = (
   schema: DatabaseSchemaDetails,
-  useDagreLayout: boolean = true
+  useDagreLayout: boolean = true,
+  savedLayout?: ERNode[] | null
 ): TransformedERData => {
   const nodes: Node<TableNodeData>[] = [];
   const edges: Edge<any>[] = [];
@@ -106,6 +108,12 @@ export const transformSchemaToER = (
     return map;
   };
 
+  // Build saved layout lookup: tableId → ERNode
+  const layoutMap = new Map<string, ERNode>();
+  if (savedLayout) {
+    savedLayout.forEach(n => layoutMap.set(n.tableId, n));
+  }
+
   // First pass: Create all nodes with enriched column data
   schema.schemas.forEach((schemaGroup) => {
     const schemaColor = SCHEMA_COLORS[schemaGroup.name] || "#6B7280";
@@ -124,9 +132,10 @@ export const transformSchemaToER = (
         };
       });
 
-      // Grid fallback position
-      const x = (nodeIndex % 3) * 350;
-      const y = Math.floor(nodeIndex / 3) * 350;
+      // Use saved position if available, otherwise grid fallback
+      const savedNode = layoutMap.get(tableName);
+      const x = savedNode ? savedNode.x : (nodeIndex % 3) * 350;
+      const y = savedNode ? savedNode.y : Math.floor(nodeIndex / 3) * 350;
 
       nodes.push({
         id: tableName,
@@ -220,8 +229,11 @@ export const transformSchemaToER = (
     });
   });
 
-  // Apply Dagre layout if enabled and there are edges
-  const layoutedNodes = useDagreLayout && edges.length > 0 
+  // Apply Dagre layout when:
+  //  - Dagre is requested AND there are edges
+  //  - AND there is NO saved layout (would overwrite user-saved positions)
+  const hasSavedPositions = savedLayout && savedLayout.length > 0;
+  const layoutedNodes = useDagreLayout && edges.length > 0 && !hasSavedPositions
     ? applyDagreLayout(nodes, edges, "LR")
     : nodes;
 

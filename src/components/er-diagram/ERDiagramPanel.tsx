@@ -7,11 +7,15 @@ const nodeTypes = {
     table: TableNode,
 } as const;
 
-export default function ERDiagramPanel() {
+interface ERDiagramPanelProps {
+    projectId?: string | null;
+}
+
+export default function ERDiagramPanel({ projectId }: ERDiagramPanelProps) {
     return (
         <div className="h-full flex flex-col bg-background text-foreground overflow-hidden">
             <ReactFlowProvider>
-                <ERDiagramContent nodeTypes={nodeTypes} />
+                <ERDiagramContent nodeTypes={nodeTypes} projectId={projectId} />
             </ReactFlowProvider>
         </div>
     );
